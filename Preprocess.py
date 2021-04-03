@@ -56,7 +56,7 @@ class InputImage:
         src_img = cv.imread(file_src, cv.IMREAD_UNCHANGED)
         dim = (self.width, self.height)
 
-        rsz = cv.resize(src_img, dim) #, interpolation=interp)
+        rsz = cv.resize(src_img, dim, interpolation=interp)
         self.img_dat = rsz
 
 
