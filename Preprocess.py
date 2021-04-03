@@ -41,6 +41,13 @@ class InputImage:
     img_dat = None              # image object
 
     def __init__(self, res, aspect, screen=None):
+        #set the image directly if specified
+        if screen is not None:
+            if type(screen) is tuple:
+                self.width = screen[0]
+                self.height = screen[1]
+            return None
+
         # calculate the image dimensions
         base = math.sqrt(ImVal.resln[res] / (ImVal.ratio[aspect][0] * ImVal.ratio[aspect][1]))
         self.width = int(ImVal.ratio[aspect][0] * base)
