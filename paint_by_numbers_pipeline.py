@@ -11,14 +11,16 @@ reshape_image = True
 show_original_image = False
 
 median_kernel = 5
-reshape_width = 300
+reshape_width = 500
 reshape_height = 300
 min_canny = 100
 max_canny = 200
-image_name = 'baseball_field.jpeg'
+image_name = 'coke.jpg'
 color_code = 1 # 0 = grayscale 1 = color
+contour_threshold = 50
+perimeter_or_area_contour = 'perimeter'
 
-num_colors = 3
+num_colors = 5
 test_image = cv2.imread(image_name, color_code)
 print(test_image.shape)
 
@@ -59,6 +61,7 @@ blurred_image = cv2.medianBlur(quantized_image, median_kernel) # THIS MAY NEED T
 
 # EDGE DETECTION STEP
 edges = cv2.Canny(blurred_image, min_canny, max_canny)
+contour_image = blurred_image.copy()
 contours, hierarchy = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
 edges = cv2.bitwise_not(edges)
@@ -66,10 +69,33 @@ edges = cv2.bitwise_not(edges)
 # Floodfill? Find contours? draw contours?
 
 # Find contours
-image = cv2.drawContours(blurred_image, contours, -1, (0, 255, 0), 2)
+cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
 
-# Idea superimpose borders and floodfill them; then assign colors
+# Idea remove small contours)
+num_shapes = len(contours)
+print(num_shapes)
+new_contours = []
+for c in contours:
+	print(c.shape)
+	if perimeter_or_area_contour == 'perimeter':
+		contour_value = cv2.arcLength(c,True)
+	else:
+		area = cv2.contourArea(c)
+	if contour_value > contour_threshold:
+		new_contours.append(c)
+		print(contour_value)
+
+filtered_image = blurred_image.copy()
+cv2.drawContours(filtered_image, new_contours, -1, (0, 255, 0), 2)
+# convex hull
+
+# Idea- draw bounding box around contour, find median, reassign
+# flood fill
 
 # SHOW FINAL RESULTS
-cv2.imshow("image", np.hstack([original_image, quantized_image, edges, blurred_image, flood_image]))
+row_1 = np.hstack([original_image, quantized_image, blurred_image])
+row_2 = np.hstack([edges, contour_image, filtered_image])
+images_to_show = np.vstack([row_1, row_2])
+cv2.imshow("image", images_to_show)
 cv2.waitKey(0)
+#np.hstack([original_image, quantized_image, blurred_image, edges, contour_image])
