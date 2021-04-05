@@ -1,101 +1,128 @@
+# Paint By Numbers Pipeline
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.metrics import pairwise_distances_argmin
 from sklearn.datasets import load_sample_image
-from time import time
+import time
 import cv2
 
 # Options to Run Pipeline
-reshape_image = True
-show_original_image = False
-
-median_kernel = 5
+image_name = 'baseball_field.jpeg'			# Name of Image
+reshape_image = True						# Whether to reshape image dimensions
 reshape_width = 500
 reshape_height = 300
-min_canny = 100
+color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
+num_colors = 5								# Number of colors needed for k-means clustering
+median_kernel = 5							# Size of median kernel used for blurring
+min_canny = 100								# Thresholds used for Canny edge detection
 max_canny = 200
-image_name = 'coke.jpg'
-color_code = 1 # 0 = grayscale 1 = color
-contour_threshold = 50
-perimeter_or_area_contour = 'perimeter'
+perimeter_or_area_contour = 'perimeter'		# How to filter out contours
+contour_threshold = 50						# Threshold to filter contours	
+filter_verbose = False						# Print contour info				
+use_cuda = True								# Whether to use cuda
+test_sample_cuda = False
 
-num_colors = 5
+# Load imports only if CUDA is enabled
+if use_cuda:
+	import pycuda.autoinit
+	import pycuda.driver as drv
+	from pycuda.compiler import SourceModule
+
+# Run sample test case for Py CUDA
+if test_sample_cuda:
+	mod = SourceModule("""
+	__global__ void multiply_them(float *dest, float *a, float *b)
+	{
+	  const int i = threadIdx.x;
+	  dest[i] = a[i] * b[i];
+	}
+	""")
+	multiply_them = mod.get_function("multiply_them")
+	a = np.random.randn(400).astype(np.float32)
+	b = np.random.randn(400).astype(np.float32)
+	dest = np.zeros_like(a)
+	for i in range(1000):
+		multiply_them(drv.Out(dest), drv.In(a), drv.In(b), block=(400,1,1), grid=(1,1))
+	print(dest-a*b)
+	print(dest)
+
+# Load Image
 test_image = cv2.imread(image_name, color_code)
-print(test_image.shape)
 
-
-# Check if want to see original image
-if show_original_image:
-	cv2.imshow('Original Image', test_image)
-	cv2.waitKey(0)
-	cv2.destroyAllWindows()
-
-# PIPELINE STEP: Preprocessing- Image Resize
+# Reshape Image if Desired; Assign h and w
 if reshape_image:
 	test_image = cv2.resize(test_image, (reshape_width, reshape_height))
 	(h, w) = (reshape_height, reshape_width)
 else:
 	(h, w) = test_image.shape[:2]
+original_image = test_image.copy()
 
+# Color Quantization
+quant_start = time.clock()
+quantized_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2LAB)							# Convert from BGR to LAB
+quantized_image = quantized_image.reshape((test_image.shape[0] * test_image.shape[1], 3))		# Flatten h/w dimensions
+clusters = MiniBatchKMeans(n_clusters=num_colors)									# Run k-means
+labels = clusters.fit_predict(quantized_image)										# Finds clusters and assigns labels to pixels; (711, 1067, 3)->(758637,)
+quantized_image = clusters.cluster_centers_.astype("uint8")[labels]					# Make quantized image
+quantized_image = quantized_image.reshape((h, w, 3))								# Reshape quantized image
+quantized_image = cv2.cvtColor(quantized_image, cv2.COLOR_LAB2BGR)					# Convert quantized image back to BGR
+quant_end = time.clock()
 
-# Color Quantization- Convert Image from BGR Format to LAB
-test_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2LAB)
-test_image = test_image.reshape((test_image.shape[0] * test_image.shape[1], 3))
-clusters = MiniBatchKMeans(n_clusters=num_colors)
-print(clusters)
-labels = clusters.fit_predict(test_image)
-print(labels.shape)	# For a (711, 1067, 3) image this is (758637,); this function finds clusters and assigns labels
+# Median step
+median_start = time.clock()
+blurred_image = cv2.medianBlur(quantized_image, median_kernel) 						# Remove noise with median kernel
+median_end = time.clock()
 
-quantized_image = clusters.cluster_centers_.astype("uint8")[labels]
-quantized_image = quantized_image.reshape((h, w, 3))
-original_image = test_image.reshape((h, w, 3))
+# Edge Detection Step
+edge_start = time.clock()
+edges = cv2.Canny(blurred_image, min_canny, max_canny)								# Get edges with Canny
+edge_end = time.clock()
 
-quantized_image = cv2.cvtColor(quantized_image, cv2.COLOR_LAB2BGR)
-original_image = cv2.cvtColor(original_image, cv2.COLOR_LAB2BGR)
-
-
-
-# FILTERING STEP: Median Filter to Remove Dots
-blurred_image = cv2.medianBlur(quantized_image, median_kernel) # THIS MAY NEED TUNED
-
-# EDGE DETECTION STEP
-edges = cv2.Canny(blurred_image, min_canny, max_canny)
+# Contour Detection Step
 contour_image = blurred_image.copy()
-contours, hierarchy = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+contour_start = time.clock()
+contours, hierarchy = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)	
+contour_end = time.clock()	
 edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
 edges = cv2.bitwise_not(edges)
-# Looks like we will have to get borders not edges
-# Floodfill? Find contours? draw contours?
-
-# Find contours
 cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
 
-# Idea remove small contours)
+# Filter Contours Step
+filter_contour_start = time.clock()
 num_shapes = len(contours)
-print(num_shapes)
+if filter_verbose:
+	print(num_shapes)
 new_contours = []
 for c in contours:
-	print(c.shape)
+	if filter_verbose:
+		print(c.shape)
 	if perimeter_or_area_contour == 'perimeter':
 		contour_value = cv2.arcLength(c,True)
 	else:
 		area = cv2.contourArea(c)
 	if contour_value > contour_threshold:
 		new_contours.append(c)
-		print(contour_value)
-
+		if filter_verbose:
+			print(contour_value)
+filter_contour_end = time.clock()
 filtered_image = blurred_image.copy()
 cv2.drawContours(filtered_image, new_contours, -1, (0, 255, 0), 2)
-# convex hull
 
-# Idea- draw bounding box around contour, find median, reassign
-# flood fill
+# Ideas: Convex Hull, Floodfill, draw bounding box, find median/reassign
 
-# SHOW FINAL RESULTS
+# Final Results
 row_1 = np.hstack([original_image, quantized_image, blurred_image])
 row_2 = np.hstack([edges, contour_image, filtered_image])
 images_to_show = np.vstack([row_1, row_2])
-cv2.imshow("image", images_to_show)
+cv2.imshow("Paint By Numbers", images_to_show)
 cv2.waitKey(0)
-#np.hstack([original_image, quantized_image, blurred_image, edges, contour_image])
+cv2.destroyAllWindows()
+
+# Print Timing
+print('Timing: ')
+print('Color Quantization: ' + str(quant_end - quant_start) + ' s')
+print('Median Filter: ' + str(median_end - median_start) + ' s')
+print('Edge Detection: ' + str(edge_end - edge_start) + ' s')
+print('Contour: ' + str(contour_end - contour_start) + ' s')
+print('Filter Contour: ' + str(filter_contour_end - filter_contour_start) + ' s')
