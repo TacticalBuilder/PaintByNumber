@@ -8,12 +8,12 @@ import time
 import cv2
 
 # Options to Run Pipeline
-image_name = 'test_images/carrot.jpg'			# Name of Image
+image_name = 'test_images/pizza.png'			# Name of Image
 reshape_image = True						# Whether to reshape image dimensions
 reshape_width = 250
 reshape_height = 250
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 3								# Number of colors needed for k-means clustering
+num_colors = 3							# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 min_canny = 100								# Thresholds used for Canny edge detection
 max_canny = 200
@@ -94,8 +94,6 @@ edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
 edges = cv2.bitwise_not(edges)
 cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
 
-# a contour can be 2 points
-
 # Filter Contours Step
 filter_contour_start = time.clock()
 if filter_contours:
@@ -120,19 +118,48 @@ filter_contour_end = time.clock()
 filtered_image = blurred_image.copy()
 cv2.drawContours(filtered_image, new_contours, -1, (0, 255, 0), 2) #2
 
-# Ideas: Convex Hull, Floodfill, draw bounding box, find median/reassign
-
-# Idea floodfill using seed point
 
 # Get final outline
 outline = cv2.bitwise_not(np.zeros((h,w,3), np.uint8))
 cv2.drawContours(outline, new_contours, -1, (0, 255, 0), 2) #2
 
 
+# Need to make mask from each contour
+for c in new_contours:
+	mask = np.zeros((h,w,3),np.uint8)
+	print(mask.shape)
+	cv2.drawContours(mask,new_contours, 0, 255, -1)
+
+
+
+# FLOODFILL
+##colors = []
+#color_locs = []
+##flood_image = outline.copy()
+#for i in range(h):
+#	for j in range(w):
+#		print(i)
+#		print(j)
+#		seed_point = (i,j)
+#		if str(blurred_image[i,j]) not in colors:
+#			print(i)
+#			print(j)
+#			print(tuple([int(x) for x in blurred_image[i,j]]))
+#			cv2.floodFill(flood_image, None, seedPoint=seed_point, newVal=tuple([int(x) for x in blurred_image[i,j]]), loDiff=(0, 0, 0, 0), upDiff=(0, 0, 0, 0))
+#			color_locs.append(str([i,j]))
+#			colors.append(str(blurred_image[i,j]))
+#print(colors)
+#print(color_locs)
+
+# Calculate mean color within contour
+#seed_point = (100, 77)
+#cv2.floodFill(flood_image, None, seedPoint=seed_point, newVal=(255, 0, 0), loDiff=(0, 0, 0, 0), upDiff=(0, 0, 0, 0))
+crayola_image = np.zeros((h,w,3), np.uint8)
+
 # Final Results
 row_1 = np.hstack([original_image, quantized_image, blurred_image])
 row_2 = np.hstack([edges, contour_image, filtered_image]) 
-row_3 = np.hstack([outline, np.zeros((h,w,3), np.uint8), np.zeros((h,w,3), np.uint8)])
+row_3 = np.hstack([outline, crayola_image, np.zeros((h,w,3), np.uint8)])
 images_to_show = np.vstack([row_1, row_2, row_3])
 cv2.imshow("Paint By Numbers", images_to_show)
 cv2.waitKey(0)
