@@ -246,6 +246,7 @@ for i in range(1, h-1):
 
 # Get num components
 print('Num of Components: ' + str(component_num))
+brendan_image = marked_mask.copy()							# I think this is what you need @Brendan, lmk
 marked_mask = marked_mask.astype('uint8') * 20				# This is dummy line to show the 'marked_mask'; not robust
 marked_mask = cv2.cvtColor(marked_mask, cv2.COLOR_GRAY2BGR)
 
