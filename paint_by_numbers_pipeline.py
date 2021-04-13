@@ -181,6 +181,7 @@ else:
 median_end = time.clock()
 
 # Make Canvas - TO DO: Maybe filter in this stage?
+outline_start = time.clock()
 canvas_image = np.ones((h,w,3), np.uint8) * 255
 for i in range(w):
 	canvas_image[0][i] = [0, 0, 0]
@@ -218,8 +219,10 @@ for i in range(1, h - 1):
 			outline_image[i,j] = [0, 0, 0] 
 		else: 
 			canvas_image[i, j] = blurred_image[i, j]
+outline_end = time.clock()
 
 # Get Connected Components 
+dfs_start = time.clock()
 marked_mask = np.zeros((h,w))
 dx = [-1, 0, 1, 1, 1, 0, -1, 1]
 dy = [1, 1, 1, 0, -1, -1, -1, 0]
@@ -243,10 +246,13 @@ for i in range(1, h-1):
 		if (not np.array_equal(canvas_image[i, j], [0, 0, 0])) and marked_mask[i, j] == 0:
 			dfs(canvas_image, i, j, component_num)
 			component_num = component_num + 1
+dfs_end = time.clock()
+
 
 # Get num components
 print('Num of Components: ' + str(component_num))
 brendan_image = marked_mask.copy()							# I think this is what you need @Brendan, lmk
+print(brendan_image)
 marked_mask = marked_mask.astype('uint8') * 20				# This is dummy line to show the 'marked_mask'; not robust
 marked_mask = cv2.cvtColor(marked_mask, cv2.COLOR_GRAY2BGR)
 
@@ -269,4 +275,6 @@ print('\tK-Means Init: ' + str(kmeans_end - kmeans_start) + ' s')
 print('\tAssign Clusters: ' + str(assign_clusters_end - assign_clusters_start) + ' s')
 print('\tReshape 2: ' + str(color_reshape2_end - color_reshape2_start) + ' s')
 print('\tConvert 2: ' + str(color_cvt2_end - color_cvt2_start) + ' s')
-print('Median Filter: ' + str(median_end - median_start) + ' s')
+print('Blur Filter: ' + str(median_end - median_start) + ' s')
+print('Outlining: ' + str(outline_end - outline_start) + ' s')
+print('Connected Components: ' + str(dfs_end - dfs_start) + ' s')
