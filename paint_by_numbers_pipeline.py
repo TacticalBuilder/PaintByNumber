@@ -11,9 +11,9 @@ import warnings
 # Options to Run Pipeline
 # What impacts runtime? Image shape, number of colors
 warnings.filterwarnings("ignore")
-image_name = 'test_images/pizza.png'			# Name of Image
+image_name = 'test_images/soccer.jpg'			# Name of Image
 reshape_image = True						# Whether to reshape image dimensions
-reshape_width = 250
+reshape_width = 250 # 250
 reshape_height = 250
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
 num_colors = 3							# Number of colors needed for k-means clustering
@@ -151,10 +151,10 @@ color_cvt1_start = time.clock()
 if use_custom_rgb_to_lab:
 	#convert_rgb_to_lab_gpu(test_image.copy())
 	quantized_image = convert_rgb_to_lab(test_image.copy())
-	print(quantized_image[100][100])
+	#print(quantized_image[100][100])
 else:
 	quantized_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2LAB)							# Convert from BGR to LAB
-	print(quantized_image[100][100])
+	#print(quantized_image[100][100])
 color_cvt1_end = time.clock()
 
 color_reshape1_start = time.clock()
@@ -275,29 +275,37 @@ for i in range(1, h - 1):
 			crayola_image[i, j] = blurred_image[i, j]
 
 # Get Connected Components 
+# Watch out if colored image
+marked_mask = np.zeros((h,w))
+dx = [-1, 0, 1, 1, 1, 0, -1, 1]
+dy = [1, 1, 1, 0, -1, -1, -1, 0]
+component_num = 1
+def dfs(img, x_val, y_val, component_num):
+	stack = []
+	stack.append((x_val,y_val))
+	while not len(stack) == 0:
+		(x,y) = stack.pop()
+		for i in range(8):
+			nx = x + dx[i]
+			ny = y + dy[i]
+			if (not np.array_equal(img[nx, ny], [0, 0, 0])) and marked_mask[nx, ny] == 0:
+				stack.insert(0, (nx, ny))
+				marked_mask[nx, ny] = component_num
 
-img = crayola_image.copy()
-
-def get_num_regions():
-	pass
-
-# MARKING STAGE
-# GET REGIONS
-
-
-
-
-
-# FOR EACH REGION:
-# GET COLOR FROM EACH REGION:
-# ASSIGN CRAYOLA AND NUMBER
-
+for i in range(1, h-1):
+	for j in range(1, w-1):
+		if (not np.array_equal(crayola_image[i, j], [0, 0, 0])) and marked_mask[i, j] == 0:
+			dfs(crayola_image, i, j, component_num)
+			component_num = component_num + 1
+print(component_num)
+marked_mask = marked_mask.astype('uint8') * 20
+marked_mask = cv2.cvtColor(marked_mask, cv2.COLOR_GRAY2BGR)
 
 # Final Results
 if show_results:
 	row_1 = np.hstack([original_image, quantized_image, blurred_image])
 	row_2 = np.hstack([edges, contour_image, filtered_image]) 
-	row_3 = np.hstack([outline, crayola_image, np.zeros((h,w,3), np.uint8)])
+	row_3 = np.hstack([outline, crayola_image, marked_mask])
 	images_to_show = np.vstack([row_1, row_2, row_3])
 	cv2.imshow("Paint By Numbers", images_to_show)
 	cv2.waitKey(0)
