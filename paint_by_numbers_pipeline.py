@@ -36,26 +36,62 @@ if use_cuda:
 	import pycuda.driver as drv
 	from pycuda.compiler import SourceModule
 
+
 # Run sample test case for Py CUDA
 if test_sample_cuda:
 	mod = SourceModule("""
 	__global__ void multiply_them(float *dest, float *a, float *b)
 	{
 	  const int i = threadIdx.x;
-	  dest[i] = a[i] * b[i];
+	  for(int j = 0; j < 1000000; j++){
+		dest[i] = dest[i] + j;
+	  }
 	}
 	""")
+	
 	multiply_them = mod.get_function("multiply_them")
 	a = np.random.randn(400).astype(np.float32)
 	b = np.random.randn(400).astype(np.float32)
 	dest = np.zeros_like(a)
-	for i in range(1000):
-		multiply_them(drv.Out(dest), drv.In(a), drv.In(b), block=(400,1,1), grid=(1,1))
+	start = time.clock()
+	multiply_them(drv.Out(dest), drv.In(a), drv.In(b), block=(400,1,1), grid=(1,1,1))
+	end = time.clock()
+	print(end - start)
+	start = time.clock()
+	a = 0
+	for j in range(1000000):
+		a = a + j
+	end = time.clock()
+	print(end - start)
 	print(dest-a*b)
-	print(dest)
 
+	
 
+#	#   constint row = blockIdx.x * blockDim.x + threadIdx.x;
+	#   int col = blockIdx.y * blockDim.y + threadIdx.y;
 # PIPELINE 
+def convert_rgb_to_lab_gpu(img):
+
+	#multiply_them = mod.get_function("convert_rgb_to_lab_gpu")
+	mod = SourceModule("""
+	__global__ void pizza(float *dest, float *b, float *g, float *r)
+	{
+	  int index = blockIdx.x * blockDim.x + threadIdx.x;
+	  dest[index] = 2;
+	}
+	""")
+	pizza = mod.get_function("pizza")
+	b = img[:, :, 0].flatten()
+	g = img[:, :, 1].flatten()
+	r = img[:, :, 2].flatten()
+	print(b.shape)
+	dest = np.zeros_like(b)
+	pizza(drv.Out(dest), drv.In(b), drv.In(g), drv.In(r), block=(250,1,1), grid=(250,1,1))
+	print(dest)
+	exit()
+
+	pass
+
 def convert_rgb_to_lab(img):
 	assert img.dtype == 'uint8' # only handle this image
 
@@ -63,30 +99,28 @@ def convert_rgb_to_lab(img):
 	img = img.astype('float32') * (1.0/255.0)
 
 	func_srgb = lambda x : ((x+0.055)/1.055) ** (2.4) if x > 0.04045 else x / 12.92
-	for i in range(img.shape[0]):
-		for j in range(img.shape[1]):
-			for k in range(img.shape[2]):
-				img[i, j, k] = func_srgb(img[i,j,k])
+	vectorized_func_srgb = np.vectorize(func_srgb)
+	img = vectorized_func_srgb(img)
 
 	transform_matrix = np.array([[0.412453, 0.357580, 0.180423], [0.212671, 0.715160, 0.072169], [0.019334, 0.119193, 0.950227]])
 	xyz = np.zeros(img.shape)
 	for i in range(img.shape[0]):
 		for j in range(img.shape[1]):
-			bgr_val = img[i, j, :]
-			xyz[i, j, :] = np.matmul(transform_matrix, np.flip(bgr_val))
+			xyz[i, j, :] = np.matmul(transform_matrix, np.flip(img[i, j, :]))
 	xyz[:, :, 0] = xyz[:, :, 0] / (0.950456)
 	xyz[:, :, 2] = xyz[:, :, 2] / (1.088754)
 
 	# Get L, a, b
 	new_img = np.zeros(img.shape)
 	func_L = lambda y : 116*(y**(1.0/3)) - 16 if y > 0.008856 else 903.3*y
+	vectorized_func_L = np.vectorize(func_L)
 	f_t = lambda t : t**(1.0/3) if t > 0.008856 else 7.787*t + (16.0/116)
+	vectorized_func_f_t = np.vectorize(f_t)
 	delta = 0
-	for i in range(img.shape[0]):
-		for j in range(img.shape[1]):
-			new_img[i, j, 0] = func_L(xyz[i, j, 1])		# L
-			new_img[i, j, 1] = 500 * (f_t(xyz[i,j,0]) - f_t(xyz[i,j,1])) + delta
-			new_img[i, j, 2] = 200 * (f_t(xyz[i,j,1]) - f_t(xyz[i,j,2])) + delta
+	new_img[:, :, 0] = vectorized_func_L(xyz[:, :, 1])
+	new_img[:, :, 1] = 500 * (vectorized_func_f_t(xyz[:,:,0]) - vectorized_func_f_t(xyz[:,:,1])) + delta
+	new_img[:, :, 2] = 200 * (vectorized_func_f_t(xyz[:,:,1]) - vectorized_func_f_t(xyz[:,:,2])) + delta
+
 
 	new_img[:, :, 0] = (new_img[:, :, 0] * (255.0/100)).astype('uint8')
 	new_img[:, :, 1] = (new_img[:, :, 1] + 128).astype('uint8')
@@ -115,9 +149,12 @@ quant_start = time.clock()
 
 color_cvt1_start = time.clock()
 if use_custom_rgb_to_lab:
+	#convert_rgb_to_lab_gpu(test_image.copy())
 	quantized_image = convert_rgb_to_lab(test_image.copy())
+	print(quantized_image[100][100])
 else:
 	quantized_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2LAB)							# Convert from BGR to LAB
+	print(quantized_image[100][100])
 color_cvt1_end = time.clock()
 
 color_reshape1_start = time.clock()
@@ -165,6 +202,7 @@ contour_start = time.clock()					# for best accuracy use binary images for conto
 contours, hierarchy = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)	# CHAIN_APPROX_NONE, RETR_TREE, RETR_LIST, RETR_FLOODFILL
 # CHAIN APPROX SIMPLE - saves memory
 contour_end = time.clock()	
+orig_edges = edges.copy()
 edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
 edges = cv2.bitwise_not(edges)
 cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
@@ -193,42 +231,67 @@ filter_contour_end = time.clock()
 filtered_image = blurred_image.copy()
 cv2.drawContours(filtered_image, new_contours, -1, (0, 255, 0), 2) #2
 
-
 # Get final outline
 outline = cv2.bitwise_not(np.zeros((h,w,3), np.uint8))
 cv2.drawContours(outline, new_contours, -1, (0, 255, 0), 2) #2
-
 
 # Need to make mask from each contour
 for c in new_contours:
 	mask = np.zeros((h,w,3),np.uint8)
 	cv2.drawContours(mask,new_contours, 0, 255, -1)
 
+# Crayola
+# Get filter out in this stage
+crayola_image = np.ones((h,w,3), np.uint8) * 255
+for i in range(w):
+	crayola_image[0][i] = [0, 0, 0]
+	crayola_image[h-1][i] = [0, 0, 0]
+for i in range(h):
+	crayola_image[i][0] = [0, 0, 0]
+	crayola_image[i][w-1] = [0, 0, 0]
+for i in range(1, h - 1):
+	for j in range(1, w - 1):
+		pixel_val = blurred_image[i][j]
+			#  1  2  3
+			#  4  X  5
+			#  6  7  8
+		if not np.array_equal(pixel_val, blurred_image[i-1][j-1]):
+			crayola_image[i,j] = [0, 0, 0]    
+		elif not np.array_equal(pixel_val, blurred_image[i-1][j]):
+			crayola_image[i,j] = [0, 0, 0]
+		elif not np.array_equal(pixel_val, blurred_image[i-1][j+1]):
+			crayola_image[i,j] = [0, 0, 0]
+		elif not np.array_equal(pixel_val, blurred_image[i][j-1]):
+			crayola_image[i,j] = [0, 0, 0]
+		elif not np.array_equal(pixel_val, blurred_image[i][j+1]):
+			crayola_image[i,j] = [0, 0, 0]
+		elif not np.array_equal(pixel_val, blurred_image[i+1][j-1]):
+			crayola_image[i,j] = [0, 0, 0]
+		elif not np.array_equal(pixel_val, blurred_image[i+1][j]):
+			crayola_image[i,j] = [0, 0, 0] 
+		elif not np.array_equal(pixel_val, blurred_image[i+1][j+1]):
+			crayola_image[i,j] = [0, 0, 0]
+		else: 
+			crayola_image[i, j] = blurred_image[i, j]
+
+# Get Connected Components 
+
+img = crayola_image.copy()
+
+def get_num_regions():
+	pass
+
+# MARKING STAGE
+# GET REGIONS
 
 
-# FLOODFILL
-##colors = []
-#color_locs = []
-##flood_image = outline.copy()
-#for i in range(h):
-#	for j in range(w):
-#		print(i)
-#		print(j)
-#		seed_point = (i,j)
-#		if str(blurred_image[i,j]) not in colors:
-#			print(i)
-#			print(j)
-#			print(tuple([int(x) for x in blurred_image[i,j]]))
-#			cv2.floodFill(flood_image, None, seedPoint=seed_point, newVal=tuple([int(x) for x in blurred_image[i,j]]), loDiff=(0, 0, 0, 0), upDiff=(0, 0, 0, 0))
-#			color_locs.append(str([i,j]))
-#			colors.append(str(blurred_image[i,j]))
-#print(colors)
-#print(color_locs)
 
-# Calculate mean color within contour
-#seed_point = (100, 77)
-#cv2.floodFill(flood_image, None, seedPoint=seed_point, newVal=(255, 0, 0), loDiff=(0, 0, 0, 0), upDiff=(0, 0, 0, 0))
-crayola_image = np.zeros((h,w,3), np.uint8)
+
+
+# FOR EACH REGION:
+# GET COLOR FROM EACH REGION:
+# ASSIGN CRAYOLA AND NUMBER
+
 
 # Final Results
 if show_results:
