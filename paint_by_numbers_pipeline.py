@@ -12,12 +12,12 @@ warnings.filterwarnings("ignore")
 # Parameterizable Settings
 
 # Image Settings
-image_name = 'test_images/cat.jpg'			# Name of Image
+image_name = 'test_images/pizza.png'			# Name of Image
 reshape_image = True						# Whether to reshape image dimensions
-reshape_width = 250 
-reshape_height = 250
+reshape_width = 256 
+reshape_height = 256
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 5								# Number of colors needed for k-means clustering
+num_colors = 3								# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 blur = 'median'								# 'median' or 'gaussian'
 show_results = True							# Show plots?
@@ -26,6 +26,7 @@ use_custom_rgb_to_lab = True				# Use custom RGB to LAB conversion function
 # GPU Settings
 use_cuda = True								# Whether to use cuda
 test_sample_cuda = False					# Test the sample cuda kernel
+outline_on_gpu = True
 
 # Load imports only if CUDA is enabled
 if use_cuda:
@@ -63,20 +64,150 @@ if test_sample_cuda:
 
 # This is one of the cuda kernels; does not work yet but in process of making
 def convert_rgb_to_lab_gpu(img):
+	# Convert to grayscale?
 	mod = SourceModule("""
-	__global__ void pizza(float *dest, float *b, float *g, float *r)
+	__global__ void pizza(int *dest, int *b, int *g, int *r)
 	{
-	  int index = blockIdx.x * blockDim.x + threadIdx.x;
-	  dest[index] = 2;
+	  int index =  (blockIdx.x * blockDim.x) + threadIdx.x;
+	  dest[index] =  (blockIdx.x * blockDim.x) + threadIdx.x;			
 	}
 	""")
-	pizza = mod.get_function("pizza")
-	b = img[:, :, 0].flatten()
-	g = img[:, :, 1].flatten()
-	r = img[:, :, 2].flatten()
+	pizza = mod.get_function("pizza") # block dim .x is 256, gridim.x is 256
+	b = img[:, :, 0].flatten().astype('uint32')
+	g = img[:, :, 1].flatten().astype('uint32') # VERY IMPORTANT TO MAKE UINT32
+	r = img[:, :, 2].flatten().astype('uint32')
 	dest = np.zeros_like(b)
-	pizza(drv.Out(dest), drv.In(b), drv.In(g), drv.In(r), block=(250,1,1), grid=(250,1,1))
+	pizza(drv.Out(dest), drv.In(b), drv.In(g), drv.In(r), block=(256,1,1), grid=(256,1,1))
 	print(dest)
+
+def outline_cpu(img):
+	canvas_image = np.ones((h,w,3), np.uint8) * 255
+	outline_image = np.ones((h,w), np.uint8) * 255
+	for i in range(w):
+		canvas_image[0][i] = [0, 0, 0]
+		canvas_image[h-1][i] = [0, 0, 0]
+	for i in range(h):
+		canvas_image[i][0] = [0, 0, 0]
+		canvas_image[i][w-1] = [0, 0, 0]
+	for i in range(1, h - 1):
+		for j in range(1, w - 1):
+			pixel_val = blurred_image[i][j] # 123, 4X5, 678
+			if not np.array_equal(pixel_val, blurred_image[i-1][j-1]):
+				canvas_image[i,j] = [0, 0, 0]   
+				outline_image[i,j] = 0
+			elif not np.array_equal(pixel_val, blurred_image[i-1][j]):
+				canvas_image[i,j] = [0, 0, 0]
+				outline_image[i,j] = 0
+			elif not np.array_equal(pixel_val, blurred_image[i-1][j+1]):
+				canvas_image[i,j] = [0, 0, 0]
+				outline_image[i,j] = 0
+			elif not np.array_equal(pixel_val, blurred_image[i][j-1]):
+				canvas_image[i,j] = [0, 0, 0]
+				outline_image[i,j] = 0
+			elif not np.array_equal(pixel_val, blurred_image[i][j+1]):
+				canvas_image[i,j] = [0, 0, 0]
+				outline_image[i,j] = 0 
+			elif not np.array_equal(pixel_val, blurred_image[i+1][j-1]):
+				canvas_image[i,j] = [0, 0, 0]
+				outline_image[i,j] = 0 
+			elif not np.array_equal(pixel_val, blurred_image[i+1][j]):
+				canvas_image[i,j] = [0, 0, 0] 
+				outline_image[i,j] = 0
+			elif not np.array_equal(pixel_val, blurred_image[i+1][j+1]):
+				canvas_image[i,j] = [0, 0, 0]
+				outline_image[i,j] = 0
+			else: 
+				canvas_image[i, j] = blurred_image[i, j]
+	return canvas_image, outline_image
+
+def outline_gpu(img):
+	# Convert to grayscale?
+	mod = SourceModule("""
+	__global__ void outline(int *border, int *out_b, int *out_g, int *out_r, int *b, int *g, int *r)
+	{
+	  int index =  (blockIdx.x * blockDim.x) + threadIdx.x;
+	  int curr_b = b[index];
+	  int curr_g = g[index];
+	  int curr_r = r[index];
+	  int i = (index / 256);
+	  int j = (index % 256); 
+	  if (i >= 1 && j >= 1 && i < 255 && j < 255){
+	  	  if (curr_b != b[(i-1)*256+(j-1)] && curr_g != g[(i-1)*256+(j-1)] && curr_r != r[(i-1)*256+(j-1)]){ 
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else if (curr_b != b[(i-1)*256+(j)] && curr_g != g[(i-1)*256+(j)] && curr_r != r[(i-1)*256+(j)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+
+	  	  }
+	  	  else if (curr_b != b[(i-1)*256+(j+1)] && curr_g != g[(i-1)*256+(j+1)] && curr_r != r[(i-1)*256+(j+1)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else if (curr_b != b[(i)*256+(j-1)] && curr_g != g[(i)*256+(j-1)] && curr_r != r[(i)*256+(j-1)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else if (curr_b != b[(i)*256+(j+1)] && curr_g != g[(i)*256+(j+1)] && curr_r != r[(i)*256+(j+1)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else if (curr_b != b[(i+1)*256+(j-1)] && curr_g != g[(i+1)*256+(j-1)] && curr_r != r[(i+1)*256+(j-1)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else if (curr_b != b[(i+1)*256+(j)] && curr_g != g[(i+1)*256+(j)] && curr_r != r[(i+1)*256+(j)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else if (curr_b != b[(i+1)*256+(j+1)] && curr_g != g[(i+1)*256+(j+1)] && curr_r != r[(i+1)*256+(j+1)]){
+	  	  		out_b[index] = 0;
+	  	  		out_g[index] = 0;
+	  	  		out_r[index] = 0;
+	  	  		border[index] = 0;
+	  	  }
+	  	  else {
+	  	  		out_b[index] = curr_b;
+	  	  		out_g[index] = curr_g;
+	  	  		out_r[index] = curr_r;
+	  	  		border[index] = 255;
+	  	  }
+	  }
+	  else {
+	  	  border[index] = 0;
+	  }	
+	}
+	""")
+	outline = mod.get_function("outline") # block dim .x is 256, gridim.x is 256
+	b = img[:, :, 0].flatten().astype('uint32')
+	g = img[:, :, 1].flatten().astype('uint32') # VERY IMPORTANT TO MAKE UINT32
+	r = img[:, :, 2].flatten().astype('uint32')
+	out_b = np.zeros_like(b)
+	out_g = np.zeros_like(g)
+	out_r = np.zeros_like(r)
+	border = np.ones_like(b) * 255
+	outline(drv.Out(border), drv.Out(out_b), drv.Out(out_g), drv.Out(out_r), drv.In(b), drv.In(g), drv.In(r), block=(256,1,1), grid=(256,1,1))
+	canvas = np.zeros_like(img)
+	canvas[:, :, 0] = np.reshape(out_b, (256, 256))
+	canvas[:, :, 1] = np.reshape(out_g, (256, 256))
+	canvas[:, :, 2] = np.reshape(out_r, (256, 256))
+	border = np.reshape(border, (256, 256))
+	return canvas, border
 
 # Custom convert RGB to LAB function
 def convert_rgb_to_lab(img):
@@ -147,7 +278,7 @@ color_reshape1_end = time.clock()
 
 # Initialize k-means
 kmeans_start = time.clock()
-clusters = MiniBatchKMeans(n_clusters=num_colors)									
+clusters = MiniBatchKMeans(n_clusters=num_colors)				# TO DO: Check if this can be						
 kmeans_end = time.clock()
 
 # Find clusters and assign labels to pixels (711, 1067, 3) -> (758637,)
@@ -180,45 +311,12 @@ else:
 	blurred_image = cv2.medianBlur(quantized_image, median_kernel) 						# Remove noise with median kernel
 median_end = time.clock()
 
-# Make Canvas - TO DO: Maybe filter in this stage?
+# Make Canvas and Outline 
 outline_start = time.clock()
-canvas_image = np.ones((h,w,3), np.uint8) * 255
-for i in range(w):
-	canvas_image[0][i] = [0, 0, 0]
-	canvas_image[h-1][i] = [0, 0, 0]
-for i in range(h):
-	canvas_image[i][0] = [0, 0, 0]
-	canvas_image[i][w-1] = [0, 0, 0]
-outline_image = canvas_image.copy()
-for i in range(1, h - 1):
-	for j in range(1, w - 1):
-		pixel_val = blurred_image[i][j] # 123, 4X5, 678
-		if not np.array_equal(pixel_val, blurred_image[i-1][j-1]):
-			canvas_image[i,j] = [0, 0, 0]   
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i-1][j]):
-			canvas_image[i,j] = [0, 0, 0]
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i-1][j+1]):
-			canvas_image[i,j] = [0, 0, 0]
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i][j-1]):
-			canvas_image[i,j] = [0, 0, 0]
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i][j+1]):
-			canvas_image[i,j] = [0, 0, 0]
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i+1][j-1]):
-			canvas_image[i,j] = [0, 0, 0]
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i+1][j]):
-			canvas_image[i,j] = [0, 0, 0] 
-			outline_image[i,j] = [0, 0, 0] 
-		elif not np.array_equal(pixel_val, blurred_image[i+1][j+1]):
-			canvas_image[i,j] = [0, 0, 0]
-			outline_image[i,j] = [0, 0, 0] 
-		else: 
-			canvas_image[i, j] = blurred_image[i, j]
+if outline_on_gpu:
+	canvas_image, outline_image = outline_gpu(blurred_image)
+else: 
+	canvas_image, outline_image = outline_cpu(blurred_image)
 outline_end = time.clock()
 
 # Get Connected Components 
@@ -255,9 +353,9 @@ brendan_image = marked_mask.copy()							# I think this is what you need @Brenda
 print(brendan_image)
 marked_mask = marked_mask.astype('uint8') * 20				# This is dummy line to show the 'marked_mask'; not robust
 marked_mask = cv2.cvtColor(marked_mask, cv2.COLOR_GRAY2BGR)
-
 # Final Results
 if show_results:
+	outline_image = cv2.cvtColor(outline_image.astype('uint8'), cv2.COLOR_GRAY2BGR)
 	row_1 = np.hstack([original_image, quantized_image, blurred_image])
 	row_2 = np.hstack([outline_image, canvas_image, marked_mask])
 	images_to_show = np.vstack([row_1, row_2])
