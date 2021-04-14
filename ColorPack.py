@@ -7,10 +7,32 @@ Input is a csv of the colors, name, number, and RGB / HEX
     |--ColorEntry[]
 """
 import math
+import cv2 as cv
 
 RGB_RED = 0
 RGB_BLUE = 1
 RGB_GREEN = 2
+
+# SERIAL and PARALLEL COLOR2NUMBER KERNEL
+# for parallel, pull out the text overlap step (this sadly is forced serial)
+def serial_colorToNumber(img, contours, colorset):
+    for cont in contours:
+        # 1. select a pixel within the shape given by the contour
+        mnts = cv.moments(cont) #calculate center of the contour obj
+        cx = mnts["10"] / (mnts["00"] + 1e-5) # x scale px location
+        cy = mnts["01"] / (mnts["00"] + 1e-5) # y scale px location
+
+        #2. get the color value from the pixel
+        col_trgt = img[cy, cx]
+
+        #3. get the number of closest available color pack color
+        num_trgt = colorset.color2number(col_trgt)
+
+        #4. append a label of the number at the selected interior pixel
+        #   (Its likely on or near the center of the shape)
+        img = cv.putText(img, (cy, cx), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1)
+
+    return img
 
 # DATA FOR SINGLE COLOR OBJECT
 class ColorEntry:
