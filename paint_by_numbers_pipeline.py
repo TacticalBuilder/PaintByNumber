@@ -16,6 +16,7 @@ image_name = 'test_images/pizza.png'			# Name of Image
 reshape_image = True						# Whether to reshape image dimensions
 reshape_width = 256 
 reshape_height = 256
+
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
 num_colors = 3								# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
@@ -25,7 +26,6 @@ use_custom_rgb_to_lab = True				# Use custom RGB to LAB conversion function
 
 # GPU Settings
 use_cuda = True								# Whether to use cuda
-test_sample_cuda = False					# Test the sample cuda kernel
 outline_on_gpu = True
 
 # Load imports only if CUDA is enabled
@@ -33,34 +33,6 @@ if use_cuda:
 	import pycuda.autoinit
 	import pycuda.driver as drv
 	from pycuda.compiler import SourceModule
-
-# This is a lot of dummy data that I am in progress of testing on GPU
-# Run sample test case for Py CUDA
-if test_sample_cuda:
-	mod = SourceModule("""
-	__global__ void multiply_them(float *dest, float *a, float *b)
-	{
-	  const int i = threadIdx.x;
-	  for(int j = 0; j < 1000000; j++){
-		dest[i] = dest[i] + j;
-	  }
-	}
-	""")
-	multiply_them = mod.get_function("multiply_them")
-	a = np.random.randn(400).astype(np.float32)
-	b = np.random.randn(400).astype(np.float32)
-	dest = np.zeros_like(a)
-	start = time.clock()
-	multiply_them(drv.Out(dest), drv.In(a), drv.In(b), block=(400,1,1), grid=(1,1,1))
-	end = time.clock()
-	print(end - start)
-	start = time.clock()
-	a = 0
-	for j in range(1000000):
-		a = a + j
-	end = time.clock()
-	print(end - start)
-	print(dest-a*b)
 
 # This is one of the cuda kernels; does not work yet but in process of making
 def convert_rgb_to_lab_gpu(img):
@@ -77,7 +49,7 @@ def convert_rgb_to_lab_gpu(img):
 	g = img[:, :, 1].flatten().astype('uint32') # VERY IMPORTANT TO MAKE UINT32
 	r = img[:, :, 2].flatten().astype('uint32')
 	dest = np.zeros_like(b)
-	pizza(drv.Out(dest), drv.In(b), drv.In(g), drv.In(r), block=(256,1,1), grid=(256,1,1))
+	pizza(drv.Out(dest), drv.In(b), drv.In(g), drv.In(r), block=(h,1,1), grid=(h,1,1))
 	print(dest)
 
 def outline_cpu(img):
@@ -129,53 +101,55 @@ def outline_gpu(img):
 	  int curr_b = b[index];
 	  int curr_g = g[index];
 	  int curr_r = r[index];
-	  int i = (index / 256);
-	  int j = (index % 256); 
-	  if (i >= 1 && j >= 1 && i < 255 && j < 255){
-	  	  if (curr_b != b[(i-1)*256+(j-1)] && curr_g != g[(i-1)*256+(j-1)] && curr_r != r[(i-1)*256+(j-1)]){ 
+	  const int row_size = blockDim.x;
+	  const int col_size = gridDim.x;
+	  int i = (index / row_size);
+	  int j = (index % row_size); 
+	  if (i >= 1 && j >= 1 && i < col_size - 1 && j < row_size - 1){
+	  	  if (curr_b != b[(i-1)*row_size+(j-1)] && curr_g != g[(i-1)*row_size+(j-1)] && curr_r != r[(i-1)*row_size+(j-1)]){ 
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i-1)*256+(j)] && curr_g != g[(i-1)*256+(j)] && curr_r != r[(i-1)*256+(j)]){
+	  	  else if (curr_b != b[(i-1)*row_size+(j)] && curr_g != g[(i-1)*row_size+(j)] && curr_r != r[(i-1)*row_size+(j)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 
 	  	  }
-	  	  else if (curr_b != b[(i-1)*256+(j+1)] && curr_g != g[(i-1)*256+(j+1)] && curr_r != r[(i-1)*256+(j+1)]){
+	  	  else if (curr_b != b[(i-1)*row_size+(j+1)] && curr_g != g[(i-1)*row_size+(j+1)] && curr_r != r[(i-1)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i)*256+(j-1)] && curr_g != g[(i)*256+(j-1)] && curr_r != r[(i)*256+(j-1)]){
+	  	  else if (curr_b != b[(i)*row_size+(j-1)] && curr_g != g[(i)*row_size+(j-1)] && curr_r != r[(i)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i)*256+(j+1)] && curr_g != g[(i)*256+(j+1)] && curr_r != r[(i)*256+(j+1)]){
+	  	  else if (curr_b != b[(i)*row_size+(j+1)] && curr_g != g[(i)*row_size+(j+1)] && curr_r != r[(i)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*256+(j-1)] && curr_g != g[(i+1)*256+(j-1)] && curr_r != r[(i+1)*256+(j-1)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j-1)] && curr_g != g[(i+1)*row_size+(j-1)] && curr_r != r[(i+1)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*256+(j)] && curr_g != g[(i+1)*256+(j)] && curr_r != r[(i+1)*256+(j)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j)] && curr_g != g[(i+1)*row_size+(j)] && curr_r != r[(i+1)*row_size+(j)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*256+(j+1)] && curr_g != g[(i+1)*256+(j+1)] && curr_r != r[(i+1)*256+(j+1)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j+1)] && curr_g != g[(i+1)*row_size+(j+1)] && curr_r != r[(i+1)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
@@ -201,12 +175,12 @@ def outline_gpu(img):
 	out_g = np.zeros_like(g)
 	out_r = np.zeros_like(r)
 	border = np.ones_like(b) * 255
-	outline(drv.Out(border), drv.Out(out_b), drv.Out(out_g), drv.Out(out_r), drv.In(b), drv.In(g), drv.In(r), block=(256,1,1), grid=(256,1,1))
+	outline(drv.Out(border), drv.Out(out_b), drv.Out(out_g), drv.Out(out_r), drv.In(b), drv.In(g), drv.In(r), block=(w,1,1), grid=(h,1,1))
 	canvas = np.zeros_like(img)
-	canvas[:, :, 0] = np.reshape(out_b, (256, 256))
-	canvas[:, :, 1] = np.reshape(out_g, (256, 256))
-	canvas[:, :, 2] = np.reshape(out_r, (256, 256))
-	border = np.reshape(border, (256, 256))
+	canvas[:, :, 0] = np.reshape(out_b, (h, w))
+	canvas[:, :, 1] = np.reshape(out_g, (h, w))
+	canvas[:, :, 2] = np.reshape(out_r, (h, w))
+	border = np.reshape(border, (h, w))
 	return canvas, border
 
 # Custom convert RGB to LAB function
