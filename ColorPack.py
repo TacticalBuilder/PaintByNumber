@@ -8,51 +8,318 @@ Input is a csv of the colors, name, number, and RGB / HEX
 """
 import math
 import cv2 as cv
+import numpy as np
 
 RGB_RED = 0
 RGB_BLUE = 1
 RGB_GREEN = 2
 
-# SERIAL and PARALLEL COLOR2NUMBER KERNEL
-# for parallel, pull out the text overlap step (this sadly is forced serial)
-def serial_colorToNumber(img, contours, colorset):
-    for cont in contours:
-        # 1. select a pixel within the shape given by the contour
-        mnts = cv.moments(cont) #calculate center of the contour obj
-        cx = mnts["10"] / (mnts["00"] + 1e-5) # x scale px location
-        cy = mnts["01"] / (mnts["00"] + 1e-5) # y scale px location
+LAB_L = 0
+LAB_A = 1
+LAB_B = 2
 
-        #2. get the color value from the pixel
-        col_trgt = img[cy, cx]
+COMPONENT_THRESH = 25
+PT_SURVAILENCE = 5
 
-        #3. get the number of closest available color pack color
-        num_trgt = colorset.color2number(col_trgt)
+class ShapePoints:
+    def __init__(self):
+        self.all_x = list()
+        self.all_y = list()
+        self.num_pts = 0
 
-        #4. append a label of the number at the selected interior pixel
-        #   (Its likely on or near the center of the shape)
-        img = cv.putText(img, (cy, cx), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1)
+def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
+    # GPU function definition
+	import pycuda.autoinit
+	import pycuda.driver as drv
+	from pycuda.compiler import SourceModule
 
-    return img
+    mod = SourceModule("""
+    __global__ void color_to_number_gpu(int *meta, int *s_mask, int *lab_targs)
+    {
+        int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+        int img_sz = meta[1] * meta[2];
+
+        int px_cnt = 0;
+        int best_area = 0;
+        int best_dist = 256000;
+        int c_pt, dist; best_dist_idx;
+        int pts[img_sz];
+        int radius[] = {10,3,10,3};
+        int buffer[] = {1,1,1,1};
+
+        //extract shape from mask
+        for (int i = 0; i < img_sz; i++) {
+            if (s_mask[i] == index) {
+                pts[px_cnt] = i;
+                px_cnt += 1;
+            }
+        }
+
+        //check for tiny shape
+        if px_cnt < COMPONENT_THRESH {
+            lab_targs[index] = 0;
+            lab_targs[index+1] = 0;
+            lab_targs[index+2] = -1;
+
+        // run shape analysis
+        } else {
+            // select pixel index
+            for(int j = 0; j < PT_SURVAILENCE; j++) {
+                c_pt = int( (j+0.5) * px_cnt / PT_SURVAILENCE );
+                cand_x = candidate_pt / meta[1];  //extract row
+                cand_y = candidate_pt % meta[1];  //extract col
+
+                //  test up direction
+                for (int k = 0; k < radius[0]; k++) {
+                    if ((cand_x - k) >= 0 ) {
+                        if (s_mask[c_pt] == s_mask[((cand_x-k)*meta[1])+cand_y]) {
+                            buffer[0] += 1;
+                        }
+                    }
+                }
+
+                //  test down direction
+                for (int k = 0; k < radius[1]; k++) {
+                    if ((cand_x + k) < meta[1] ) {
+                        if (s_mask[c_pt] == s_mask[((cand_x+k)*meta[1])+cand_y]) {
+                            buffer[1] += 1;
+                        }
+                    }
+                }
+
+                //  test left direction
+                for (int k = 0; k < radius[2]; k++) {
+                    if ( (cand_y + k) < meta[2] ) {
+                        if (s_mask[c_pt] == s_mask[cand_x*meta[1] + (cand_y+k)]) {
+                            buffer[2] += 1;
+                        }
+                    }
+                }
+
+                //   test right direction
+                for (int k = 0; k < radius[3]; k++) {
+                    if ( (cand_y - k) >= 0) {
+                        if (s_mask[c_pt] == s_mask[cand_x*meta[1] + (cand_y-k)]) {
+                            buffer[3] += 1;
+                        }
+                    }
+                }
+
+                // label point selection
+                cand_area = (buffer[0] * buffer[1]) + (buffer[2] * buffer[3]);
+                if(cand_area >= best_area) {
+                    best_area = cand_area;
+                    lab_targs[index*3] = cand_y;
+                    lab_targs[(index*3)+1] = cand_x;
+                }
+                buffer[0] = 1; // reset buffer counter
+                buffer[1] = 1;
+                buffer[2] = 1;
+                buffer[3] = 1;
+            }
+
+            // color 2 number selection process
+            c_pt = (lab_targs[index*3] * meta[1]) + lab_targs[(index*3)+1];
+
+            for (int colr = 0; colr < meta[3]; colr++) { // LAB euclidean comp.
+                dist = (ref_l[c_pt] - f_cray[colr*3]) * (ref_l[c_pt] - f_cray[colr*3]) + \
+                       (ref_a[c_pt] - f_cray[(colr*3)+1]) * (ref_a[c_pt] - f_cray[(colr*3)+1]) +\
+                       (ref_b[c_pt] - f_cray[(colr*3)+2]) * (ref_b[c_pt] - f_cray[(colr*3)+2]);
+
+                if (dist < best_dist) {
+                    best_dist_idx = colr;
+                }
+            }
+
+            lab_targs[(index*3) + 2] = best_dist_idx + 1;
+        }
+    }
+    """)
+
+    color_to_number_gpu = mod.get_function("color_to_number_gpu")
+
+    # set up
+    label_targets = np.zeros(num_comps * 3)    # flattened array (stride = 3).
+    ref_l = ref_img[:, :, 0].flatten().astype('float32')
+    ref_a = ref_img[:, :, 1].flatten().astype('float32')
+    ref_b = ref_img[:, :, 2].flatten().astype('float32')
+    s_mask = shapeMask.flatten()
+    flat_cray = crayons.flatten_lab_data()
+    meta = [num_comps, shapeMask.shape[0], shapeMask.shape[1], crayons.packSize()]
+
+    color_to_number_gpu(drv.In(ref_l), drv.In(ref_a), drv.In(ref_b), drv.In(s_mask), drv.In(flat_cray), drv.In(meta), drv.Out(label_targets), block=(num_comps,1,1), grid=(1,1,1))
+    return label_targets
+
+
+def betterColorToNumber(ref_img, shapeMask, crayons, num_comps):
+    assert (COMPONENT_THRESH > 2 * PT_SURVAILENCE), "Min shape threshold too small to select reasonable sample pts."
+
+    label_targets = np.zeros((num_comps, 3)) # output for image writing.
+    shapes = [] # each component is given a blank list to append all related pixels to.
+    for i in range(num_comps):
+        shapes.append(ShapePoints())
+
+    # mask transform
+    for i in range(shapeMask.shape[0]) :    #row
+        for j in range(shapeMask.shape[1]) : #col
+            shape_id = int(shapeMask[i][j])   #get region tag
+            shapes[shape_id].all_x.append(i)  #assign row to x
+            shapes[shape_id].all_y.append(j)  #assign col to y
+            shapes[shape_id].num_pts += 1     # increment px count
+
+    # shape analysis (parallelize this)
+    for i in range(num_comps):
+        #check for dead components
+        if shapes[i].num_pts < COMPONENT_THRESH:
+            label_targets[i][0] = 0
+            label_targets[i][1] = 0
+            label_targets[i][2] = -1 # negative 1 denotes ignore shape
+            continue
+
+        # sample pixels for pinning label location
+        samp_choices = list()
+        for samp in range(PT_SURVAILENCE):
+            # select representative pixels
+            smpl_idex = int ( (samp + 0.5) * shapes[i].num_pts / PT_SURVAILENCE)
+            test_x = shapes[i].all_x[ smpl_idex ]
+            test_y = shapes[i].all_y[ smpl_idex ]
+
+
+            # discern the buffer available at the pixel
+            radius = [10, 3, 10, 3] # rep pxl is bottom right corner of label
+            buffer = [1, 1, 1, 1]   # up / down / right / left
+
+            for bit in range(radius[0]):  # test up direction
+                if (test_x - bit) >= 0:
+                    #ref_img[test_x - bit][test_y] = [0,255,0]
+                    if shapeMask[test_x][test_y] == shapeMask[test_x - bit][test_y]:
+                        buffer[0] += 1
+
+            for bit in range(radius[1]):  # test down direction
+                if (test_x + bit) < shapeMask.shape[0]:
+                    #ref_img[test_x + bit][test_y] = [0,255,0]
+                    if shapeMask[test_x][test_y] == shapeMask[test_x + bit][test_y]:
+                        buffer[1] += 1
+
+            for bit in range(radius[2]):   # test right direction
+                if (test_y + bit) < shapeMask.shape[1]:
+                    #ref_img[test_x][test_y + bit] = [0,255,0]
+                    if shapeMask[test_x][test_y] == shapeMask[test_x][test_y+bit]:
+                        buffer[2] += 1
+
+            for bit in range(radius[3]):   # test left direction
+                if (test_y - bit) >= 0:
+                    #ref_img[test_x][test_y - bit] = [0,255,0]
+                    if shapeMask[test_x][test_y] == shapeMask[test_x][test_y-bit]:
+                        buffer[3] += 1
+
+            buff_area = (buffer[0]+buffer[1]) * (buffer[2]+buffer[3])
+            samp_choices.append([test_x, test_y, buff_area])
+
+            # get most favorable location
+            best_area = samp_choices[0][2]
+            best_px = samp_choices[0][0]
+            best_py = samp_choices[0][1]
+
+            for j in range(1,len(samp_choices)):
+                if samp_choices[j][2] >= best_area:
+                    best_px = samp_choices[j][0]
+                    best_py = samp_choices[j][1]
+
+            # fit closest crayon
+            samp_color = ref_img[test_x][test_y]
+            cnvtr = ColorEntry((0,0,0), 0x0, 0, "dummy")
+            samp_lab = cnvtr.rgb2lab((samp_color[2], samp_color[1], samp_color[0]))
+            print("C2N: Color sample: " + str(samp_lab))
+            samp_num = crayons.color2number((samp_lab[0], samp_lab[1], samp_lab[2]))
+
+            # write out the label info
+            label_targets[i][0] = best_py  # col placement
+            label_targets[i][1] = best_px  # row placement
+            label_targets[i][2] = samp_num # number for label
+
+    return label_targets
+
+
+def applyNumberLabels(template, label_targets):
+    for trgt_lab in label_targets:
+        if trgt_lab[2] > 0:
+            corner = (int(trgt_lab[0]), int(trgt_lab[1]))
+            template = cv.putText(template, str(int(trgt_lab[2])), corner, cv.FONT_HERSHEY_SIMPLEX, 0.25, (0,0,255), 1)
+
+    return template
+
 
 # DATA FOR SINGLE COLOR OBJECT
 class ColorEntry:
     def __init__(self, rgb, hex, name, number):
         self.rgb = rgb
         self.hex = hex
+        self.lab = self.rgb2lab(rgb)
         self.name = name
         self.number = number
 
     def distance(self, target):
         comp_val = target
-        if target is not tuple:
+        if type(target) is not tuple:
             comp_val = self.hex2rgb(target)
+            comp_val = self.rgb2lab(comp_val)
 
-        dist_r = self.rgb[RGB_RED] - comp_val[RGB_RED]
-        dist_g = self.rgb[RGB_GREEN] - comp_val[RGB_GREEN]
-        dist_b = self.rgb[RGB_BLUE] - comp_val[RGB_BLUE]
+        dist_r = self.lab[LAB_L] - comp_val[LAB_L]
+        dist_g = self.lab[LAB_A] - comp_val[LAB_A]
+        dist_b = self.lab[LAB_B] - comp_val[LAB_B]
 
         sqr_dist = (dist_r * dist_r) + (dist_b * dist_b) + (dist_g * dist_g)
         return math.sqrt(sqr_dist)
+
+
+    def rgb2lab(self, t_rgb):
+       num = 0
+       RGB = [0, 0, 0]
+
+       for value in t_rgb :
+           value = float(value) / 255
+
+           if value > 0.04045 :
+               value = ( ( value + 0.055 ) / 1.055 ) ** 2.4
+           else :
+               value = value / 12.92
+
+           RGB[num] = value * 100
+           num = num + 1
+
+       XYZ = [0, 0, 0,]
+       X = RGB [0] * 0.4124 + RGB [1] * 0.3576 + RGB [2] * 0.1805
+       Y = RGB [0] * 0.2126 + RGB [1] * 0.7152 + RGB [2] * 0.0722
+       Z = RGB [0] * 0.0193 + RGB [1] * 0.1192 + RGB [2] * 0.9505
+       XYZ[ 0 ] = round( X, 4 )
+       XYZ[ 1 ] = round( Y, 4 )
+       XYZ[ 2 ] = round( Z, 4 )
+
+       XYZ[ 0 ] = float( XYZ[ 0 ] ) / 95.047         # ref_X =  95.047   Observer= 2°, Illuminant= D65
+       XYZ[ 1 ] = float( XYZ[ 1 ] ) / 100.0          # ref_Y = 100.000
+       XYZ[ 2 ] = float( XYZ[ 2 ] ) / 108.883        # ref_Z = 108.883
+
+       num = 0
+       for value in XYZ :
+           if value > 0.008856 :
+               value = value ** ( 0.3333333333333333 )
+           else :
+               value = ( 7.787 * value ) + ( 16 / 116 )
+           XYZ[num] = value
+           num = num + 1
+
+       Lab = [0, 0, 0]
+
+       L = ( 116 * XYZ[ 1 ] ) - 16
+       a = 500 * ( XYZ[ 0 ] - XYZ[ 1 ] )
+       b = 200 * ( XYZ[ 1 ] - XYZ[ 2 ] )
+
+       Lab [ 0 ] = round( L, 4 )
+       Lab [ 1 ] = round( a, 4 )
+       Lab [ 2 ] = round( b, 4 )
+
+       return Lab
 
 
     def hex2rgb(self, t_hex):
@@ -106,6 +373,20 @@ class ColorPack:
         return None
 
 
+    def packSize(self):
+        return len(color_set)
+
+    def flatten_lab_data(self):
+        out_arr = np.array(self.packSize() *  3)
+
+        for c in len(color_set):
+            out_arr[c*3] = color_set[c].lab[LAB_L]
+            out_arr[(c*3)+1] = color_set[c].lab[LAB_A]
+            out_arr[(c*3)+2] = color_set[c].lab[LAB_B]
+
+        return out_arr
+
+
     def color2number(self, target):
         # There's probably a threshold for which this is worth parallelizing
         # 8 pk is fast on CPU, 128 pk might be better in parallel
@@ -133,6 +414,9 @@ if __name__ == "__main__":
     yellowgreen_res = colors.color2number(0xADFF2F)
     darkgray_res = colors.color2number(0xA9A9A9)
     deepskyblue_res = colors.color2number(0x00BFFF)
+    darkyellow_res = colors.color2number(0xf2c634)
+    purple_res = colors.color2number(0xae2ab5)
+
 
     print("Test [Salmon #FA8072] -> #" + str(salmon_res) + " " + \
            colors.num2name(salmon_res) + " RGB dist:" + \
@@ -149,5 +433,13 @@ if __name__ == "__main__":
     print("Test [Sky Blue #00BFFF] -> #" + str(deepskyblue_res) + " " + \
            colors.num2name(deepskyblue_res) + " RGB dist:" + \
            str(colors.color_set[deepskyblue_res-1].distance(0x00BFFF)))
+
+    print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
+           colors.num2name(darkyellow_res) + " RGB dist:" + \
+           str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
+
+    print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
+           colors.num2name(purple_res) + " RGB dist:" + \
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))
 
     #print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
