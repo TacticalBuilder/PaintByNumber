@@ -13,21 +13,22 @@ warnings.filterwarnings("ignore")
 # Parameterizable Settings
 
 # Image Settings
-image_name = 'test_images/pizza.png'			# Name of Image
+prepath = 'test_images/'
+specific_image_name = 'crosby.jpg'
+image_name = prepath + specific_image_name			# Name of Image
 crayon_name = 'color_packs/crayola_22pk.txt'    # Name of c
 reshape_image = True						# Whether to reshape image dimensions
-reshape_width = 256
-reshape_height = 256
-
+reshape_width = 256#int(256*1.5)
+reshape_height = 256#128*2
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 3								# Number of colors needed for k-means clustering
+num_colors = 5						# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 blur = 'median'								# 'median' or 'gaussian'
 show_results = True							# Show plots?
 use_custom_rgb_to_lab = False				# Use custom RGB to LAB conversion function
 
 # GPU Settings
-use_gpu = False								# Whether to use cuda
+use_gpu = True								# Whether to use cuda
 use_gpu_c2n = False							# Whether to use cuda for C2N assigning
 # Load imports only if CUDA is enabled
 if use_gpu:
@@ -214,49 +215,49 @@ def outline_gpu(img):
 	  int i = (index / row_size);
 	  int j = (index % row_size);
 	  if (i >= 1 && j >= 1 && i < col_size - 1 && j < row_size - 1){
-	  	  if (curr_b != b[(i-1)*row_size+(j-1)] && curr_g != g[(i-1)*row_size+(j-1)] && curr_r != r[(i-1)*row_size+(j-1)]){
+	  	  if (curr_b != b[(i-1)*row_size+(j-1)] || curr_g != g[(i-1)*row_size+(j-1)] || curr_r != r[(i-1)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i-1)*row_size+(j)] && curr_g != g[(i-1)*row_size+(j)] && curr_r != r[(i-1)*row_size+(j)]){
+	  	  else if (curr_b != b[(i-1)*row_size+(j)] || curr_g != g[(i-1)*row_size+(j)] || curr_r != r[(i-1)*row_size+(j)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i-1)*row_size+(j+1)] && curr_g != g[(i-1)*row_size+(j+1)] && curr_r != r[(i-1)*row_size+(j+1)]){
+	  	  else if (curr_b != b[(i-1)*row_size+(j+1)] || curr_g != g[(i-1)*row_size+(j+1)] || curr_r != r[(i-1)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i)*row_size+(j-1)] && curr_g != g[(i)*row_size+(j-1)] && curr_r != r[(i)*row_size+(j-1)]){
+	  	  else if (curr_b != b[(i)*row_size+(j-1)] || curr_g != g[(i)*row_size+(j-1)] || curr_r != r[(i)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i)*row_size+(j+1)] && curr_g != g[(i)*row_size+(j+1)] && curr_r != r[(i)*row_size+(j+1)]){
+	  	  else if (curr_b != b[(i)*row_size+(j+1)] || curr_g != g[(i)*row_size+(j+1)] || curr_r != r[(i)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*row_size+(j-1)] && curr_g != g[(i+1)*row_size+(j-1)] && curr_r != r[(i+1)*row_size+(j-1)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j-1)] || curr_g != g[(i+1)*row_size+(j-1)] || curr_r != r[(i+1)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*row_size+(j)] && curr_g != g[(i+1)*row_size+(j)] && curr_r != r[(i+1)*row_size+(j)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j)] || curr_g != g[(i+1)*row_size+(j)] || curr_r != r[(i+1)*row_size+(j)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*row_size+(j+1)] && curr_g != g[(i+1)*row_size+(j+1)] && curr_r != r[(i+1)*row_size+(j+1)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j+1)] || curr_g != g[(i+1)*row_size+(j+1)] || curr_r != r[(i+1)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
@@ -415,35 +416,37 @@ marked_mask = cv2.cvtColor(marked_mask, cv2.COLOR_GRAY2BGR)
 print("Assigning Numbers...")
 start_colAssignment = time.clock()
 if use_gpu_c2n:
-	numbr_labels = ColorPack.betterColorToNumber_gpu(blurred_image, brendan_image, crayons, component_num)
+	numbr_labels = ColorPack.betterColorToNumber_gpu(canvas_image, brendan_image, crayons, component_num)
 else:
-	numbr_labels = ColorPack.betterColorToNumber(blurred_image, brendan_image, crayons, component_num)
+	numbr_labels = ColorPack.betterColorToNumber(canvas_image, brendan_image, crayons, component_num)
 end_colAssignment = time.clock()
 
 print("Labeling Numbers...")
 start_labelPlace = time.clock()
+outline_image = cv2.cvtColor(outline_image.astype('uint8'), cv2.COLOR_GRAY2BGR)
 trace_img = outline_image.copy()
 final_img = ColorPack.applyNumberLabels(trace_img, numbr_labels)
 end_pipeline = time.clock()
 
 # Final Results
 if show_results:
-	outline_image = cv2.cvtColor(outline_image.astype('uint8'), cv2.COLOR_GRAY2BGR)
+	
 	row_1 = np.hstack([original_image, quantized_image, blurred_image])
 	row_2 = np.hstack([outline_image, canvas_image, marked_mask])
 	images_to_show = np.vstack([row_1, row_2])
 	cv2.imshow("Paint By Numbers", images_to_show)
 	cv2.waitKey(0)
+	cv2.imwrite('sample_results/' + specific_image_name, images_to_show)
 	cv2.destroyAllWindows()
-
 	cv2.imshow("Final PBN Template", final_img)
 	cv2.waitKey(0)
+	cv2.imwrite('sample_results/template_' + specific_image_name, final_img)
 	cv2.destroyAllWindows()
 
 
 # Print Timing
 print('Timing: ')
-print('-Color Quantization: ' + str(quant_end - quant_start) + ' s')
+print('1) Color Quantization: ' + str(quant_end - quant_start) + ' s')
 print('-Fit Predict:\t ' + str(fit_predict_end - fit_predict_start) + ' s')
 print('-Reshape 1:\t ' + str(color_reshape1_end - color_reshape1_start) + ' s')
 print('-Convert 1:\t ' + str(color_cvt1_end - color_cvt1_start) + ' s')
@@ -451,10 +454,10 @@ print('-K-Means Init:\t ' + str(kmeans_end - kmeans_start) + ' s')
 print('-Assign Clusters: ' + str(assign_clusters_end - assign_clusters_start) + ' s')
 print('-Reshape 2:\t ' + str(color_reshape2_end - color_reshape2_start) + ' s')
 print('-Convert 2:\t ' + str(color_cvt2_end - color_cvt2_start) + ' s')
-print('-Blur Filter:\t ' + str(median_end - median_start) + ' s')
-print('-Outlining:\t ' + str(outline_end - outline_start) + ' s')
-print('-Connected Components: ' + str(dfs_end - dfs_start) + ' s')
-print('-Color2Number + Place: ' + str(end_colAssignment - start_colAssignment)  + 's')
-print('-Labeling:\t ' + str(end_pipeline - start_labelPlace) + 's')
+print('2) Blur Filter:\t ' + str(median_end - median_start) + ' s')
+print('3) Outlining:\t ' + str(outline_end - outline_start) + ' s')
+print('4) Connected Components: ' + str(dfs_end - dfs_start) + ' s')
+print('5) Color2Number + Place: ' + str(end_colAssignment - start_colAssignment)  + 's')
+print('6) Labeling:\t ' + str(end_pipeline - start_labelPlace) + 's')
 print('** Total Pipeline Time: ' + str(end_pipeline - start_pipeline) + ' s')
 

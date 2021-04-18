@@ -19,7 +19,7 @@ reshape_height = 256
 assert reshape_width <= 512					# Max threads per block
 
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 5								# Number of colors needed for k-means clustering
+num_colors = 20								# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 blur = 'median'								# 'median' or 'gaussian'
 show_results = True							# Show plots?
