@@ -422,7 +422,7 @@ if __name__ == "__main__":
     for cols in colors.color_set:
         print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
 
-    """print("VALIDATION: ")
+    """
     for cols in colors.color_set:
         print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
     salmon_res = colors.color2number(0xFA8072)
@@ -449,7 +449,7 @@ if __name__ == "__main__":
            str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
            colors.num2name(purple_res) + " RGB dist:" + \
-           str(colors.color_set[purple_res-1].distance(0xae2ab5)))"""
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))
 
 
     print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
@@ -458,6 +458,6 @@ if __name__ == "__main__":
 
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
            colors.num2name(purple_res) + " RGB dist:" + \
-           str(colors.color_set[purple_res-1].distance(0xae2ab5)))"""
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))
 
-    #print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
+    # print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
