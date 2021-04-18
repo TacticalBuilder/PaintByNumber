@@ -439,6 +439,8 @@ if show_results:
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
 
+print('pasta')
+
 # Print Timing
 print('Timing: ')
 print('-Color Quantization: ' + str(quant_end - quant_start) + ' s')
