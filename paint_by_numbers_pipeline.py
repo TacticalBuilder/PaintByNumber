@@ -112,6 +112,7 @@ def convert_rgb_to_lab_gpu(img):
 	  float local_x = (0.412453 * local_r + 0.357580 * local_g + 0.180423 * local_b) / 0.950456;
 	  float local_y = 0.212671 * local_r + 0.715160 * local_g + 0.072169 * local_b;
 	  float local_z = (0.019334 * local_r + 0.119193 * local_g + 0.950227 * local_b) / 1.088754;
+
 	  float f_x = 0;
 	  float f_y = 0;
 	  float f_z = 0;
@@ -418,7 +419,7 @@ if use_gpu_c2n:
 else:
 	numbr_labels = ColorPack.betterColorToNumber(blurred_image, brendan_image, crayons, component_num)
 end_colAssignment = time.clock()
-print('hi')
+
 print("Labeling Numbers...")
 start_labelPlace = time.clock()
 trace_img = outline_image.copy()
@@ -439,12 +440,11 @@ if show_results:
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
 
-print('pasta')
 
 # Print Timing
 print('Timing: ')
 print('-Color Quantization: ' + str(quant_end - quant_start) + ' s')
-print('---Fit Predict:\t ' + str(fit_predict_end - fit_predict_start) + ' s')
+print('-Fit Predict:\t ' + str(fit_predict_end - fit_predict_start) + ' s')
 print('-Reshape 1:\t ' + str(color_reshape1_end - color_reshape1_start) + ' s')
 print('-Convert 1:\t ' + str(color_cvt1_end - color_cvt1_start) + ' s')
 print('-K-Means Init:\t ' + str(kmeans_end - kmeans_start) + ' s')
@@ -457,3 +457,4 @@ print('-Connected Components: ' + str(dfs_end - dfs_start) + ' s')
 print('-Color2Number + Place: ' + str(end_colAssignment - start_colAssignment)  + 's')
 print('-Labeling:\t ' + str(end_pipeline - start_labelPlace) + 's')
 print('** Total Pipeline Time: ' + str(end_pipeline - start_pipeline) + ' s')
+

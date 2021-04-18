@@ -44,6 +44,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
             int pts[img_sz];
             int radius[] = {10,3,10,3};  // approximation of acceptable padding for label
             int buffer[] = {1,1,1,1};    // measured padding
+
             //extract shape from (1D compressed) mask
             for (int i = 0; i < img_sz; i++) {
                 if (s_mask[i] == index) {
@@ -51,11 +52,13 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                     px_cnt += 1;
                 }
             }
+
             //check for tiny shapes to disregard (thread skips analysis is this is the case)
             if px_cnt < COMPONENT_THRESH {
                 lab_targs[index] = 0;
                 lab_targs[index+1] = 0;
                 lab_targs[index+2] = -1;
+
             // run shape analysis
             } else {
                 // survey candidate label anchors
@@ -63,6 +66,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                     c_pt = int( (j+0.5) * px_cnt / PT_SURVAILENCE );
                     cand_x = candidate_pt / meta[0];  //extract row
                     cand_y = candidate_pt % meta[0];  //extract col
+
                     //  test up direction
                     for (int k = 0; k < radius[0]; k++) {
                         if ((cand_x - k) >= 0 ) {
@@ -71,6 +75,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                             }
                         }
                     }
+
                     //  test down direction
                     for (int k = 0; k < radius[1]; k++) {
                         if ((cand_x + k) < meta[0] ) {
@@ -79,6 +84,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                             }
                         }
                     }
+
                     //  test left direction
                     for (int k = 0; k < radius[2]; k++) {
                         if ( (cand_y + k) < meta[1] ) {
@@ -87,6 +93,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                             }
                         }
                     }
+
                     //   test right direction
                     for (int k = 0; k < radius[3]; k++) {
                         if ( (cand_y - k) >= 0) {
@@ -95,6 +102,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                             }
                         }
                     }
+
                     // compare for best location
                     cand_area = (buffer[0] * buffer[1]) + (buffer[2] * buffer[3]);
                     if(cand_area >= best_area) {
@@ -110,16 +118,19 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                 // color 2 number selection process
                 //    1D compressed pixel coordinate
                 c_pt = (lab_targs[index*3] * meta[0]) + lab_targs[(index*3)+1];
+
                 // LAB euclidean dist. comparison, uses dist^2 to avoid needing sqrt
                 for (int colr = 0; colr < meta[2]; colr++) {
                     dist = (ref_l[c_pt] - f_cray[colr*3]) * (ref_l[c_pt] - f_cray[colr*3]) + \
                            (ref_a[c_pt] - f_cray[(colr*3)+1]) * (ref_a[c_pt] - f_cray[(colr*3)+1]) +\
                            (ref_b[c_pt] - f_cray[(colr*3)+2]) * (ref_b[c_pt] - f_cray[(colr*3)+2]);
+
                     // flattened LAB data relates number to flat_cray idx
                     if (dist < best_dist) {
                         best_dist_idx = colr;
                     }
                 }
+
                 // write final choice to output array
                 lab_targs[(index*3) + 2] = best_dist_idx + 1;
             }
@@ -406,6 +417,11 @@ if __name__ == "__main__":
                     [0xFA8072, "Yellow Green"],
                     []]"""
 
+
+    """print("VALIDATION: ")
+    for cols in colors.color_set:
+        print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
+
     """print("VALIDATION: ")
     for cols in colors.color_set:
         print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
@@ -415,6 +431,7 @@ if __name__ == "__main__":
     deepskyblue_res = colors.color2number(0x00BFFF)
     darkyellow_res = colors.color2number(0xf2c634)
     purple_res = colors.color2number(0xae2ab5)
+
     print("Test [Salmon #FA8072] -> #" + str(salmon_res) + " " + \
            colors.num2name(salmon_res) + " RGB dist:" + \
            str(colors.color_set[salmon_res-1].distance(0xFA8072)))
@@ -430,6 +447,15 @@ if __name__ == "__main__":
     print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
            colors.num2name(darkyellow_res) + " RGB dist:" + \
            str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
+    print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
+           colors.num2name(purple_res) + " RGB dist:" + \
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))"""
+
+
+    print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
+           colors.num2name(darkyellow_res) + " RGB dist:" + \
+           str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
+
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
            colors.num2name(purple_res) + " RGB dist:" + \
            str(colors.color_set[purple_res-1].distance(0xae2ab5)))"""
