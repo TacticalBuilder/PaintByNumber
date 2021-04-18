@@ -418,7 +418,7 @@ if use_gpu_c2n:
 else:
 	numbr_labels = ColorPack.betterColorToNumber(blurred_image, brendan_image, crayons, component_num)
 end_colAssignment = time.clock()
-
+print('hi')
 print("Labeling Numbers...")
 start_labelPlace = time.clock()
 trace_img = outline_image.copy()
