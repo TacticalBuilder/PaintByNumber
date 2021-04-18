@@ -18,8 +18,8 @@ LAB_L = 0
 LAB_A = 1
 LAB_B = 2
 
-COMPONENT_THRESH = 25
-PT_SURVAILENCE = 5
+COMPONENT_THRESH = 25  # defines the minimum size of a valid shape
+PT_SURVAILENCE = 5     # defines the number of candidate points to inspect
 
 class ShapePoints:
     def __init__(self):
@@ -29,111 +29,114 @@ class ShapePoints:
 
 def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
     # GPU function definition
-	import pycuda.autoinit
-	import pycuda.driver as drv
-	from pycuda.compiler import SourceModule
+    import pycuda.autoinit
+    import pycuda.driver as drv
+    from pycuda.compiler import SourceModule
 
     mod = SourceModule("""
-    __global__ void color_to_number_gpu(int *meta, int *s_mask, int *lab_targs)
-    {
-        int index = (blockIdx.x * blockDim.x) + threadIdx.x;
-        int img_sz = meta[1] * meta[2];
+    __global__ void color_to_number_gpu(float *ref_l, float *ref_a, float *ref_b, int *s_mask, int *meta, int *lab_targs)
+        {
+            int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+            int img_sz = meta[0] * meta[1];
+            int px_cnt = 0;
+            int best_area = 0;
+            int best_dist = 256000;
+            int c_pt, dist, best_dist_idx;
+            int pts[img_sz];
+            int radius[] = {10,3,10,3};  // approximation of acceptable padding for label
+            int buffer[] = {1,1,1,1};    // measured padding
 
-        int px_cnt = 0;
-        int best_area = 0;
-        int best_dist = 256000;
-        int c_pt, dist; best_dist_idx;
-        int pts[img_sz];
-        int radius[] = {10,3,10,3};
-        int buffer[] = {1,1,1,1};
+            //extract shape from (1D compressed) mask
+            for (int i = 0; i < img_sz; i++) {
+                if (s_mask[i] == index) {
+                    pts[px_cnt] = i;
+                    px_cnt += 1;
+                }
+            }
 
-        //extract shape from mask
-        for (int i = 0; i < img_sz; i++) {
-            if (s_mask[i] == index) {
-                pts[px_cnt] = i;
-                px_cnt += 1;
+            //check for tiny shapes to disregard (thread skips analysis is this is the case)
+            if px_cnt < COMPONENT_THRESH {
+                lab_targs[index] = 0;
+                lab_targs[index+1] = 0;
+                lab_targs[index+2] = -1;
+
+            // run shape analysis
+            } else {
+                // survey candidate label anchors
+                for(int j = 0; j < PT_SURVAILENCE; j++) {
+                    c_pt = int( (j+0.5) * px_cnt / PT_SURVAILENCE );
+                    cand_x = candidate_pt / meta[0];  //extract row
+                    cand_y = candidate_pt % meta[0];  //extract col
+
+                    //  test up direction
+                    for (int k = 0; k < radius[0]; k++) {
+                        if ((cand_x - k) >= 0 ) {
+                            if (s_mask[c_pt] == s_mask[((cand_x-k)*meta[0])+cand_y]) {
+                                buffer[0] += 1;
+                            }
+                        }
+                    }
+
+                    //  test down direction
+                    for (int k = 0; k < radius[1]; k++) {
+                        if ((cand_x + k) < meta[0] ) {
+                            if (s_mask[c_pt] == s_mask[((cand_x+k)*meta[0])+cand_y]) {
+                                buffer[1] += 1;
+                            }
+                        }
+                    }
+
+                    //  test left direction
+                    for (int k = 0; k < radius[2]; k++) {
+                        if ( (cand_y + k) < meta[1] ) {
+                            if (s_mask[c_pt] == s_mask[cand_x*meta[0] + (cand_y+k)]) {
+                                buffer[2] += 1;
+                            }
+                        }
+                    }
+
+                    //   test right direction
+                    for (int k = 0; k < radius[3]; k++) {
+                        if ( (cand_y - k) >= 0) {
+                            if (s_mask[c_pt] == s_mask[cand_x*meta[0] + (cand_y-k)]) {
+                                buffer[3] += 1;
+                            }
+                        }
+                    }
+
+                    // compare for best location
+                    cand_area = (buffer[0] * buffer[1]) + (buffer[2] * buffer[3]);
+                    if(cand_area >= best_area) {
+                        best_area = cand_area;
+                        lab_targs[index*3] = cand_y;
+                        lab_targs[(index*3)+1] = cand_x;
+                    }
+                    buffer[0] = 1; // reset buffer counter
+                    buffer[1] = 1;
+                    buffer[2] = 1;
+                    buffer[3] = 1;
+                }
+
+                // color 2 number selection process
+                //    1D compressed pixel coordinate
+                c_pt = (lab_targs[index*3] * meta[0]) + lab_targs[(index*3)+1];
+
+                // LAB euclidean dist. comparison, uses dist^2 to avoid needing sqrt
+                for (int colr = 0; colr < meta[2]; colr++) {
+                    dist = (ref_l[c_pt] - f_cray[colr*3]) * (ref_l[c_pt] - f_cray[colr*3]) + \
+                           (ref_a[c_pt] - f_cray[(colr*3)+1]) * (ref_a[c_pt] - f_cray[(colr*3)+1]) +\
+                           (ref_b[c_pt] - f_cray[(colr*3)+2]) * (ref_b[c_pt] - f_cray[(colr*3)+2]);
+
+                    // flattened LAB data relates number to flat_cray idx
+                    if (dist < best_dist) {
+                        best_dist_idx = colr;
+                    }
+                }
+
+                // write final choice to output array
+                lab_targs[(index*3) + 2] = best_dist_idx + 1;
             }
         }
-
-        //check for tiny shape
-        if px_cnt < COMPONENT_THRESH {
-            lab_targs[index] = 0;
-            lab_targs[index+1] = 0;
-            lab_targs[index+2] = -1;
-
-        // run shape analysis
-        } else {
-            // select pixel index
-            for(int j = 0; j < PT_SURVAILENCE; j++) {
-                c_pt = int( (j+0.5) * px_cnt / PT_SURVAILENCE );
-                cand_x = candidate_pt / meta[1];  //extract row
-                cand_y = candidate_pt % meta[1];  //extract col
-
-                //  test up direction
-                for (int k = 0; k < radius[0]; k++) {
-                    if ((cand_x - k) >= 0 ) {
-                        if (s_mask[c_pt] == s_mask[((cand_x-k)*meta[1])+cand_y]) {
-                            buffer[0] += 1;
-                        }
-                    }
-                }
-
-                //  test down direction
-                for (int k = 0; k < radius[1]; k++) {
-                    if ((cand_x + k) < meta[1] ) {
-                        if (s_mask[c_pt] == s_mask[((cand_x+k)*meta[1])+cand_y]) {
-                            buffer[1] += 1;
-                        }
-                    }
-                }
-
-                //  test left direction
-                for (int k = 0; k < radius[2]; k++) {
-                    if ( (cand_y + k) < meta[2] ) {
-                        if (s_mask[c_pt] == s_mask[cand_x*meta[1] + (cand_y+k)]) {
-                            buffer[2] += 1;
-                        }
-                    }
-                }
-
-                //   test right direction
-                for (int k = 0; k < radius[3]; k++) {
-                    if ( (cand_y - k) >= 0) {
-                        if (s_mask[c_pt] == s_mask[cand_x*meta[1] + (cand_y-k)]) {
-                            buffer[3] += 1;
-                        }
-                    }
-                }
-
-                // label point selection
-                cand_area = (buffer[0] * buffer[1]) + (buffer[2] * buffer[3]);
-                if(cand_area >= best_area) {
-                    best_area = cand_area;
-                    lab_targs[index*3] = cand_y;
-                    lab_targs[(index*3)+1] = cand_x;
-                }
-                buffer[0] = 1; // reset buffer counter
-                buffer[1] = 1;
-                buffer[2] = 1;
-                buffer[3] = 1;
-            }
-
-            // color 2 number selection process
-            c_pt = (lab_targs[index*3] * meta[1]) + lab_targs[(index*3)+1];
-
-            for (int colr = 0; colr < meta[3]; colr++) { // LAB euclidean comp.
-                dist = (ref_l[c_pt] - f_cray[colr*3]) * (ref_l[c_pt] - f_cray[colr*3]) + \
-                       (ref_a[c_pt] - f_cray[(colr*3)+1]) * (ref_a[c_pt] - f_cray[(colr*3)+1]) +\
-                       (ref_b[c_pt] - f_cray[(colr*3)+2]) * (ref_b[c_pt] - f_cray[(colr*3)+2]);
-
-                if (dist < best_dist) {
-                    best_dist_idx = colr;
-                }
-            }
-
-            lab_targs[(index*3) + 2] = best_dist_idx + 1;
-        }
-    }
     """)
 
     color_to_number_gpu = mod.get_function("color_to_number_gpu")
@@ -145,7 +148,7 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
     ref_b = ref_img[:, :, 2].flatten().astype('float32')
     s_mask = shapeMask.flatten()
     flat_cray = crayons.flatten_lab_data()
-    meta = [num_comps, shapeMask.shape[0], shapeMask.shape[1], crayons.packSize()]
+    meta = [shapeMask.shape[0], shapeMask.shape[1], crayons.packSize()] #rows, cols, num crayons
 
     color_to_number_gpu(drv.In(ref_l), drv.In(ref_a), drv.In(ref_b), drv.In(s_mask), drv.In(flat_cray), drv.In(meta), drv.Out(label_targets), block=(num_comps,1,1), grid=(1,1,1))
     return label_targets
@@ -228,9 +231,12 @@ def betterColorToNumber(ref_img, shapeMask, crayons, num_comps):
 
             # fit closest crayon
             samp_color = ref_img[test_x][test_y]
+
+            # convert single pixel to LAB space
             cnvtr = ColorEntry((0,0,0), 0x0, 0, "dummy")
             samp_lab = cnvtr.rgb2lab((samp_color[2], samp_color[1], samp_color[0]))
-            print("C2N: Color sample: " + str(samp_lab))
+            #print("C2N: Color sample: " + str(samp_lab))
+            # identify closest crayon
             samp_num = crayons.color2number((samp_lab[0], samp_lab[1], samp_lab[2]))
 
             # write out the label info
@@ -406,9 +412,16 @@ if __name__ == "__main__":
     print("TEST - Color to Number Pack functionality")
     colors = ColorPack("color_packs/crayola_22pk.txt")
 
-    print("VALIDATION: ")
+    for color in colors.color_set:
+        print(color.name + " 0x" + str(color.hex) + "LAB: " + str())
+
+    """test_battery = [[0xFA8072, "Salmon"],
+                    [0xFA8072, "Yellow Green"],
+                    []]"""
+
+    """print("VALIDATION: ")
     for cols in colors.color_set:
-        print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb)
+        print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
 
     salmon_res = colors.color2number(0xFA8072)
     yellowgreen_res = colors.color2number(0xADFF2F)
@@ -440,6 +453,6 @@ if __name__ == "__main__":
 
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
            colors.num2name(purple_res) + " RGB dist:" + \
-           str(colors.color_set[purple_res-1].distance(0xae2ab5)))
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))"""
 
     #print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
