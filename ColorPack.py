@@ -2,7 +2,6 @@
 """
 This object handles the 'crayons' that will be targetted by the program
 Input is a csv of the colors, name, number, and RGB / HEX
-
 |--ColorPack
     |--ColorEntry[]
 """
@@ -116,7 +115,6 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
                     buffer[2] = 1;
                     buffer[3] = 1;
                 }
-
                 // color 2 number selection process
                 //    1D compressed pixel coordinate
                 c_pt = (lab_targs[index*3] * meta[0]) + lab_targs[(index*3)+1];
@@ -419,10 +417,14 @@ if __name__ == "__main__":
                     [0xFA8072, "Yellow Green"],
                     []]"""
 
+
     """print("VALIDATION: ")
     for cols in colors.color_set:
         print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
 
+    """
+    for cols in colors.color_set:
+        print("Color Pack Entry: ", cols.number, cols.name, hex(cols.hex), cols.rgb, cols.lab)
     salmon_res = colors.color2number(0xFA8072)
     yellowgreen_res = colors.color2number(0xADFF2F)
     darkgray_res = colors.color2number(0xA9A9A9)
@@ -430,22 +432,25 @@ if __name__ == "__main__":
     darkyellow_res = colors.color2number(0xf2c634)
     purple_res = colors.color2number(0xae2ab5)
 
-
     print("Test [Salmon #FA8072] -> #" + str(salmon_res) + " " + \
            colors.num2name(salmon_res) + " RGB dist:" + \
            str(colors.color_set[salmon_res-1].distance(0xFA8072)))
-
     print("Test [Yellow Green #ADFF2F] -> #" + str(yellowgreen_res) + " " + \
            colors.num2name(yellowgreen_res) + " RGB dist:" + \
            str(colors.color_set[yellowgreen_res-1].distance(0xADFF2F)))
-
     print("Test [Dark Gray #A9A9A9] -> #" + str(darkgray_res) + " " + \
            colors.num2name(darkgray_res) + " RGB dist:" + \
            str(colors.color_set[darkgray_res-1].distance(0xA9A9A9)))
-
     print("Test [Sky Blue #00BFFF] -> #" + str(deepskyblue_res) + " " + \
            colors.num2name(deepskyblue_res) + " RGB dist:" + \
            str(colors.color_set[deepskyblue_res-1].distance(0x00BFFF)))
+    print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
+           colors.num2name(darkyellow_res) + " RGB dist:" + \
+           str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
+    print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
+           colors.num2name(purple_res) + " RGB dist:" + \
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))
+
 
     print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
            colors.num2name(darkyellow_res) + " RGB dist:" + \
@@ -453,6 +458,6 @@ if __name__ == "__main__":
 
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
            colors.num2name(purple_res) + " RGB dist:" + \
-           str(colors.color_set[purple_res-1].distance(0xae2ab5)))"""
+           str(colors.color_set[purple_res-1].distance(0xae2ab5)))
 
-    #print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
+    # print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
