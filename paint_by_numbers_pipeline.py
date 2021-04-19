@@ -13,21 +13,22 @@ warnings.filterwarnings("ignore")
 # Parameterizable Settings
 
 # Image Settings
-image_name = 'test_images/cat.jpg'			# Name of Image
-crayon_name = 'color_packs/crayola_22pk.txt'    # Name of color set file
+prepath = 'test_images/'
+specific_image_name = 'crosby.jpg'
+image_name = prepath + specific_image_name			# Name of Image
+crayon_name = 'color_packs/crayola_22pk.txt'    # Name of c
 reshape_image = True						# Whether to reshape image dimensions
-reshape_width = 256
-reshape_height = 256
-
+reshape_width = 256#int(256*1.5)
+reshape_height = 256#128*2
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 3								# Number of colors needed for k-means clustering
+num_colors = 5						# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 blur = 'median'								# 'median' or 'gaussian'
 show_results = True							# Show plots?
 use_custom_rgb_to_lab = False				# Use custom RGB to LAB conversion function
 
 # GPU Settings
-use_gpu = False								# Whether to use cuda
+use_gpu = True								# Whether to use cuda
 use_gpu_c2n = False							# Whether to use cuda for C2N assigning
 # Load imports only if CUDA is enabled
 if use_gpu:
@@ -214,49 +215,49 @@ def outline_gpu(img):
 	  int i = (index / row_size);
 	  int j = (index % row_size);
 	  if (i >= 1 && j >= 1 && i < col_size - 1 && j < row_size - 1){
-	  	  if (curr_b != b[(i-1)*row_size+(j-1)] && curr_g != g[(i-1)*row_size+(j-1)] && curr_r != r[(i-1)*row_size+(j-1)]){
+	  	  if (curr_b != b[(i-1)*row_size+(j-1)] || curr_g != g[(i-1)*row_size+(j-1)] || curr_r != r[(i-1)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i-1)*row_size+(j)] && curr_g != g[(i-1)*row_size+(j)] && curr_r != r[(i-1)*row_size+(j)]){
+	  	  else if (curr_b != b[(i-1)*row_size+(j)] || curr_g != g[(i-1)*row_size+(j)] || curr_r != r[(i-1)*row_size+(j)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i-1)*row_size+(j+1)] && curr_g != g[(i-1)*row_size+(j+1)] && curr_r != r[(i-1)*row_size+(j+1)]){
+	  	  else if (curr_b != b[(i-1)*row_size+(j+1)] || curr_g != g[(i-1)*row_size+(j+1)] || curr_r != r[(i-1)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i)*row_size+(j-1)] && curr_g != g[(i)*row_size+(j-1)] && curr_r != r[(i)*row_size+(j-1)]){
+	  	  else if (curr_b != b[(i)*row_size+(j-1)] || curr_g != g[(i)*row_size+(j-1)] || curr_r != r[(i)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i)*row_size+(j+1)] && curr_g != g[(i)*row_size+(j+1)] && curr_r != r[(i)*row_size+(j+1)]){
+	  	  else if (curr_b != b[(i)*row_size+(j+1)] || curr_g != g[(i)*row_size+(j+1)] || curr_r != r[(i)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*row_size+(j-1)] && curr_g != g[(i+1)*row_size+(j-1)] && curr_r != r[(i+1)*row_size+(j-1)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j-1)] || curr_g != g[(i+1)*row_size+(j-1)] || curr_r != r[(i+1)*row_size+(j-1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*row_size+(j)] && curr_g != g[(i+1)*row_size+(j)] && curr_r != r[(i+1)*row_size+(j)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j)] || curr_g != g[(i+1)*row_size+(j)] || curr_r != r[(i+1)*row_size+(j)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
 	  	  		border[index] = 0;
 	  	  }
-	  	  else if (curr_b != b[(i+1)*row_size+(j+1)] && curr_g != g[(i+1)*row_size+(j+1)] && curr_r != r[(i+1)*row_size+(j+1)]){
+	  	  else if (curr_b != b[(i+1)*row_size+(j+1)] || curr_g != g[(i+1)*row_size+(j+1)] || curr_r != r[(i+1)*row_size+(j+1)]){
 	  	  		out_b[index] = 0;
 	  	  		out_g[index] = 0;
 	  	  		out_r[index] = 0;
@@ -294,7 +295,7 @@ def outline_gpu(img):
 ###########################################################################################################################
 # PIPELINE
 print("Loading Image and Crayons...")
-start_pipeline = time.process_time()
+start_pipeline = time.clock()
 test_image = cv2.imread(image_name, color_code)
 crayons = ColorPack.ColorPack(crayon_name)
 
@@ -308,77 +309,77 @@ else:
 original_image = test_image.copy()
 
 # Color Quantization
-quant_start = time.process_time()
+quant_start = time.clock()
 
 print("Converting RGB to LAB image...")
 ## Convert RGB to LAB
-color_cvt1_start = time.process_time()
+color_cvt1_start = time.clock()
 if use_custom_rgb_to_lab and use_gpu:
 	quantized_image = convert_rgb_to_lab_gpu(original_image.copy())
 elif use_custom_rgb_to_lab:
 	quantized_image = convert_rgb_to_lab(original_image.copy())
 else:
 	quantized_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2LAB)
-color_cvt1_end = time.process_time()
+color_cvt1_end = time.clock()
 
 print("Flattening image (reshape) ...")
 ## Flatten h/w
-color_reshape1_start = time.process_time()
+color_reshape1_start = time.clock()
 quantized_image = quantized_image.reshape((test_image.shape[0] * test_image.shape[1], 3))
-color_reshape1_end = time.process_time()
+color_reshape1_end = time.clock()
 
 print("K-Means Clustering Colors ...")
 # Initialize k-means
-kmeans_start = time.process_time()
+kmeans_start = time.clock()
 clusters = MiniBatchKMeans(n_clusters=num_colors)				# TO DO: Check if this can be
-kmeans_end = time.process_time()
+kmeans_end = time.clock()
 
 print("Pixel labeling clusters ...")
 # Find clusters and assign labels to pixels (711, 1067, 3) -> (758637,)
-fit_predict_start = time.process_time()
+fit_predict_start = time.clock()
 labels = clusters.fit_predict(quantized_image)
-fit_predict_end = time.process_time()
+fit_predict_end = time.clock()
 
 print("Quantizing clusters ...")
 # Make quantized image
-assign_clusters_start = time.process_time()
+assign_clusters_start = time.clock()
 quantized_image = clusters.cluster_centers_.astype("uint8")[labels]
-assign_clusters_end = time.process_time()
+assign_clusters_end = time.clock()
 
 print("Final Image Quantization ...")
 # Reshape quantized image
-color_reshape2_start = time.process_time()
+color_reshape2_start = time.clock()
 quantized_image = quantized_image.reshape((h, w, 3))
-color_reshape2_end = time.process_time()
+color_reshape2_end = time.clock()
 
 # Convert quantized image from LAB to BGR
-color_cvt2_start = time.process_time()
+color_cvt2_start = time.clock()
 quantized_image = cv2.cvtColor(quantized_image, cv2.COLOR_LAB2BGR)
-color_cvt2_end = time.process_time()
+color_cvt2_end = time.clock()
 
-quant_end = time.process_time()		# End quantization
+quant_end = time.clock()		# End quantization
 
 print("Smoothing image ...")
 # Blurring step
-median_start = time.process_time()
+median_start = time.clock()
 if blur == 'gaussian':
 	blurred_image = cv2.GaussianBlur(quantized_image, (5,5), 0) 						# Remove noise with gaussian kernel
 else:
 	blurred_image = cv2.medianBlur(quantized_image, median_kernel) 						# Remove noise with median kernel
-median_end = time.process_time()
+median_end = time.clock()
 
 print("Generating outline ...")
 # Make Canvas and Outline
-outline_start = time.process_time()
+outline_start = time.clock()
 if use_gpu:
 	canvas_image, outline_image = outline_gpu(blurred_image)
 else:
 	canvas_image, outline_image = outline_cpu(blurred_image)
-outline_end = time.process_time()
+outline_end = time.clock()
 
 # Get Connected Components
 print("Retrieving components ...")
-dfs_start = time.process_time()
+dfs_start = time.clock()
 canvas_image_gray = cv2.cvtColor(canvas_image, cv2.COLOR_BGR2GRAY)
 marked_mask = np.zeros((h,w))
 dx = [-1, 0, 1, 1, 1, 0, -1, 1]
@@ -403,7 +404,7 @@ for i in range(1, h-1):
 		if canvas_image_gray[i, j] != 0  and marked_mask[i, j] == 0:
 			dfs(canvas_image_gray, i, j, component_num)
 			component_num = component_num + 1
-dfs_end = time.process_time()
+dfs_end = time.clock()
 
 
 # Get num components
@@ -413,38 +414,40 @@ marked_mask = marked_mask.astype('uint8') * 20				# This is dummy line to show t
 marked_mask = cv2.cvtColor(marked_mask, cv2.COLOR_GRAY2BGR)
 
 print("Assigning Numbers...")
-start_colAssignment = time.process_time()
+start_colAssignment = time.clock()
 if use_gpu_c2n:
-	numbr_labels = ColorPack.betterColorToNumber_gpu(blurred_image, brendan_image, crayons, component_num)
+	numbr_labels = ColorPack.betterColorToNumber_gpu(canvas_image, brendan_image, crayons, component_num)
 else:
-	numbr_labels = ColorPack.betterColorToNumber(blurred_image, brendan_image, crayons, component_num)
-end_colAssignment = time.process_time()
+	numbr_labels = ColorPack.betterColorToNumber(canvas_image, brendan_image, crayons, component_num)
+end_colAssignment = time.clock()
 
 print("Labeling Numbers...")
-start_labelPlace = time.process_time()
+start_labelPlace = time.clock()
+outline_image = cv2.cvtColor(outline_image.astype('uint8'), cv2.COLOR_GRAY2BGR)
 trace_img = outline_image.copy()
 trace_img = cv2.cvtColor(trace_img, cv2.COLOR_GRAY2BGR)
 final_img = ColorPack.applyNumberLabels(trace_img, numbr_labels)
-end_pipeline = time.process_time()
+end_pipeline = time.clock()
 
 # Final Results
 if show_results:
-	outline_image = cv2.cvtColor(outline_image.astype('uint8'), cv2.COLOR_GRAY2BGR)
+
 	row_1 = np.hstack([original_image, quantized_image, blurred_image])
 	row_2 = np.hstack([outline_image, canvas_image, marked_mask])
 	images_to_show = np.vstack([row_1, row_2])
 	cv2.imshow("Paint By Numbers", images_to_show)
 	cv2.waitKey(0)
+	cv2.imwrite('sample_results/' + specific_image_name, images_to_show)
 	cv2.destroyAllWindows()
-
 	cv2.imshow("Final PBN Template", final_img)
 	cv2.waitKey(0)
+	cv2.imwrite('sample_results/template_' + specific_image_name, final_img)
 	cv2.destroyAllWindows()
 
 
 # Print Timing
 print('Timing: ')
-print('-Color Quantization: ' + str(quant_end - quant_start) + ' s')
+print('1) Color Quantization: ' + str(quant_end - quant_start) + ' s')
 print('-Fit Predict:\t ' + str(fit_predict_end - fit_predict_start) + ' s')
 print('-Reshape 1:\t ' + str(color_reshape1_end - color_reshape1_start) + ' s')
 print('-Convert 1:\t ' + str(color_cvt1_end - color_cvt1_start) + ' s')
@@ -452,10 +455,9 @@ print('-K-Means Init:\t ' + str(kmeans_end - kmeans_start) + ' s')
 print('-Assign Clusters: ' + str(assign_clusters_end - assign_clusters_start) + ' s')
 print('-Reshape 2:\t ' + str(color_reshape2_end - color_reshape2_start) + ' s')
 print('-Convert 2:\t ' + str(color_cvt2_end - color_cvt2_start) + ' s')
-print('-Blur Filter:\t ' + str(median_end - median_start) + ' s')
-print('-Outlining:\t ' + str(outline_end - outline_start) + ' s')
-print('-Connected Components: ' + str(dfs_end - dfs_start) + ' s')
-print('-Color2Number + Place: ' + str(end_colAssignment - start_colAssignment)  + 's')
-print('-Labeling:\t ' + str(end_pipeline - start_labelPlace) + 's')
+print('2) Blur Filter:\t ' + str(median_end - median_start) + ' s')
+print('3) Outlining:\t ' + str(outline_end - outline_start) + ' s')
+print('4) Connected Components: ' + str(dfs_end - dfs_start) + ' s')
+print('5) Color2Number + Place: ' + str(end_colAssignment - start_colAssignment)  + 's')
+print('6) Labeling:\t ' + str(end_pipeline - start_labelPlace) + 's')
 print('** Total Pipeline Time: ' + str(end_pipeline - start_pipeline) + ' s')
-

@@ -227,8 +227,11 @@ def betterColorToNumber(ref_img, shapeMask, crayons, num_comps):
                     best_px = samp_choices[j][0]
                     best_py = samp_choices[j][1]
 
+
             # fit closest crayon
             samp_color = ref_img[test_x][test_y]
+            #print(samp_color)
+            #print('\t')
 
             # convert single pixel to LAB space
             cnvtr = ColorEntry((0,0,0), 0x0, 0, "dummy")
@@ -236,6 +239,7 @@ def betterColorToNumber(ref_img, shapeMask, crayons, num_comps):
             #print("C2N: Color sample: " + str(samp_lab))
             # identify closest crayon
             samp_num = crayons.color2number((samp_lab[0], samp_lab[1], samp_lab[2]))
+            #print(samp_num)
 
             # write out the label info
             label_targets[i][0] = best_py  # col placement
@@ -268,6 +272,14 @@ class ColorEntry:
         if type(target) is not tuple:
             comp_val = self.hex2rgb(target)
             comp_val = self.rgb2lab(comp_val)
+            #print('First comp')
+            #print(comp_val)
+        #print('rgb')
+        #print(self.rgb)
+        #comp_val = self.lab
+            
+        #print('Comp val')
+        #print(comp_val)
 
         dist_r = self.lab[LAB_L] - comp_val[LAB_L]
         dist_g = self.lab[LAB_A] - comp_val[LAB_A]
@@ -331,7 +343,7 @@ class ColorEntry:
         iso_g = (0XFF00 & t_hex) >> 8
         iso_b = 0xFF & t_hex
         #print("HEX: " + hex(t_hex) + " R:"+hex(iso_r)+" G:"+hex(iso_g)+" B:"+hex(iso_b))
-        return (iso_r, iso_b, iso_g)
+        return (iso_r, iso_g, iso_b)
 
 
     def rgb2hex(self, t_rgb):
@@ -396,8 +408,12 @@ class ColorPack:
         # 8 pk is fast on CPU, 128 pk might be better in parallel
         best_dist = 442 # No value in RGB space will be farther than this
         best_num = 0
+        #print('Color Set')
+        #print(target)
         for test in self.color_set:
+            #print(test)
             res = test.distance(target)
+            #print(res)
             #print(target, " "+test.name+" d:" + str(res))
             if res < best_dist :
                 best_dist = res
