@@ -2,6 +2,17 @@
 """
 This object handles the 'crayons' that will be targetted by the program
 Input is a csv of the colors, name, number, and RGB / HEX
+sample line from correctly formatted input:
+
+# labels image - this operation is exceptionally fast. Not worth parallelizing
+def applyNumberLabels
+
+# this operation is moderately expensive and scales with number of shapes
+def betterColorToNumber_gpu
+def betterColorToNumber
+    |--ShapePoints[]
+
+# Encapsulation of Color2Number operations and colorspace conversions
 |--ColorPack
     |--ColorEntry[]
 """
@@ -20,12 +31,14 @@ LAB_B = 2
 COMPONENT_THRESH = 25  # defines the minimum size of a valid shape
 PT_SURVAILENCE = 5     # defines the number of candidate points to inspect
 
+# Organizes the points of a single connected components for candidate selection
 class ShapePoints:
     def __init__(self):
         self.all_x = list()
         self.all_y = list()
         self.num_pts = 0
 
+# GPU version of image color to number assignment
 def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
     # GPU function definition
     import pycuda.autoinit
@@ -151,7 +164,8 @@ def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
     color_to_number_gpu(drv.In(ref_l), drv.In(ref_a), drv.In(ref_b), drv.In(s_mask), drv.In(flat_cray), drv.In(meta), drv.Out(label_targets), block=(num_comps,1,1), grid=(1,1,1))
     return label_targets
 
-
+# Color to Number operation - returns a list of all labels (selected colors) and
+#   the pixel of the image to anchor them to.
 def betterColorToNumber(ref_img, shapeMask, crayons, num_comps):
     assert (COMPONENT_THRESH > 2 * PT_SURVAILENCE), "Min shape threshold too small to select reasonable sample pts."
 
@@ -248,7 +262,7 @@ def betterColorToNumber(ref_img, shapeMask, crayons, num_comps):
 
     return label_targets
 
-
+# Applying the label list as text on top of the unlabeled template
 def applyNumberLabels(template, label_targets):
     for trgt_lab in label_targets:
         if trgt_lab[2] > 0:
@@ -267,19 +281,12 @@ class ColorEntry:
         self.name = name
         self.number = number
 
+    # returns LAB distance of this crayon from the reference value
     def distance(self, target):
         comp_val = target
         if type(target) is not tuple:
             comp_val = self.hex2rgb(target)
             comp_val = self.rgb2lab(comp_val)
-            #print('First comp')
-            #print(comp_val)
-        #print('rgb')
-        #print(self.rgb)
-        #comp_val = self.lab
-            
-        #print('Comp val')
-        #print(comp_val)
 
         dist_r = self.lab[LAB_L] - comp_val[LAB_L]
         dist_g = self.lab[LAB_A] - comp_val[LAB_A]
@@ -289,6 +296,7 @@ class ColorEntry:
         return math.sqrt(sqr_dist)
 
 
+    # convert RGB pixel to LAB pixel
     def rgb2lab(self, t_rgb):
        num = 0
        RGB = [0, 0, 0]
@@ -338,6 +346,7 @@ class ColorEntry:
        return Lab
 
 
+    # convert HEX code to RGB pixel
     def hex2rgb(self, t_hex):
         iso_r = (0xFF0000 & t_hex) >> 16
         iso_g = (0XFF00 & t_hex) >> 8
@@ -345,7 +354,7 @@ class ColorEntry:
         #print("HEX: " + hex(t_hex) + " R:"+hex(iso_r)+" G:"+hex(iso_g)+" B:"+hex(iso_b))
         return (iso_r, iso_g, iso_b)
 
-
+    # convert RGB pixel to hex code
     def rgb2hex(self, t_rgb):
         hex_r = t_rgb[RGB_RED] << 16
         hex_g = (t_rgb[RGB_GREEN] << 8) & 0xFF00
@@ -375,6 +384,7 @@ class ColorPack:
             self.color_set.append(ColorEntry(ce_rgb, ce_hex, ce_name, ce_num))
 
 
+    # retreive english name of color by number
     def num2name(self, num):
         for col_num in self.color_set:
             if col_num.number == num:
@@ -382,6 +392,7 @@ class ColorPack:
         return None
 
 
+    # retreive number of english name color
     def name2num(self, name):
         for col_name in self.color_set:
             if col_name.name == name:
@@ -389,9 +400,11 @@ class ColorPack:
         return None
 
 
+    # number of available colors in set
     def packSize(self):
         return len(color_set)
 
+    # Flattens the crayons into a 1D (stride=3) array for GPU readin
     def flatten_lab_data(self):
         out_arr = np.array(self.packSize() *  3)
 
@@ -403,18 +416,16 @@ class ColorPack:
         return out_arr
 
 
+    # Color To Number Selection Operation (.distance() handles col. space conversion)
     def color2number(self, target):
         # There's probably a threshold for which this is worth parallelizing
         # 8 pk is fast on CPU, 128 pk might be better in parallel
         best_dist = 442 # No value in RGB space will be farther than this
         best_num = 0
-        #print('Color Set')
-        #print(target)
+
         for test in self.color_set:
-            #print(test)
             res = test.distance(target)
-            #print(res)
-            #print(target, " "+test.name+" d:" + str(res))
+
             if res < best_dist :
                 best_dist = res
                 best_num = test.number
@@ -422,6 +433,7 @@ class ColorPack:
         return best_num
 
 
+# TEST BATTERY FOR COLORSPACE COMPARISONS
 if __name__ == "__main__":
     print("TEST - Color to Number Pack functionality")
     colors = ColorPack("color_packs/crayola_22pk.txt")
@@ -449,31 +461,31 @@ if __name__ == "__main__":
     purple_res = colors.color2number(0xae2ab5)
 
     print("Test [Salmon #FA8072] -> #" + str(salmon_res) + " " + \
-           colors.num2name(salmon_res) + " RGB dist:" + \
+           colors.num2name(salmon_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[salmon_res-1].distance(0xFA8072)))
     print("Test [Yellow Green #ADFF2F] -> #" + str(yellowgreen_res) + " " + \
-           colors.num2name(yellowgreen_res) + " RGB dist:" + \
+           colors.num2name(yellowgreen_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[yellowgreen_res-1].distance(0xADFF2F)))
     print("Test [Dark Gray #A9A9A9] -> #" + str(darkgray_res) + " " + \
-           colors.num2name(darkgray_res) + " RGB dist:" + \
+           colors.num2name(darkgray_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[darkgray_res-1].distance(0xA9A9A9)))
     print("Test [Sky Blue #00BFFF] -> #" + str(deepskyblue_res) + " " + \
-           colors.num2name(deepskyblue_res) + " RGB dist:" + \
+           colors.num2name(deepskyblue_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[deepskyblue_res-1].distance(0x00BFFF)))
     print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
-           colors.num2name(darkyellow_res) + " RGB dist:" + \
+           colors.num2name(darkyellow_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
-           colors.num2name(purple_res) + " RGB dist:" + \
+           colors.num2name(purple_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[purple_res-1].distance(0xae2ab5)))
 
 
     print("Test [Dark Yellow #f2c634] -> #" + str(darkyellow_res) + " " + \
-           colors.num2name(darkyellow_res) + " RGB dist:" + \
+           colors.num2name(darkyellow_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[darkyellow_res-1].distance(0xf2c634)))
 
     print("Test [Purple #ae2ab5] -> #" + str(purple_res) + " " + \
-           colors.num2name(purple_res) + " RGB dist:" + \
+           colors.num2name(purple_res) + " LAB deltaE (dist):" + \
            str(colors.color_set[purple_res-1].distance(0xae2ab5)))
 
     # print("Salmon -> pink d:", colors.color_set[15].distance(0xFA8072))
