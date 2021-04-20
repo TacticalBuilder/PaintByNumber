@@ -14,19 +14,20 @@ warnings.filterwarnings("ignore")
 
 # Image Settings
 prepath = 'test_images/'
-specific_image_name = 'test.png'
+specific_image_name = 'cathy.jpg'
 image_name = prepath + specific_image_name			# Name of Image
 crayon_name = 'color_packs/crayola_22pk.txt'    # Name of color set
 reshape_image = True						# Whether to reshape image dimensions
-reshape_width = 512#int(256*1.5)
-reshape_height = 512#128*2
+reshape_width = int(256*1.5)
+reshape_height = 256
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 5						# Number of colors needed for k-means clustering
+num_colors = 10				# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 blur = 'median'								# 'median' or 'gaussian'
 show_results = True						# Show plots?
 save_template = False				    # Write final template to file
 use_custom_rgb_to_lab = False				# Use custom RGB to LAB conversion function
+save_img = False
 
 # GPU Settings
 use_gpu = False								# Whether to use cuda
@@ -320,6 +321,7 @@ if use_custom_rgb_to_lab and use_gpu:
 elif use_custom_rgb_to_lab:
 	quantized_image = convert_rgb_to_lab(original_image.copy())
 else:
+	print('CV Color')
 	quantized_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2LAB)
 color_cvt1_end = time.process_time()
 
@@ -331,9 +333,9 @@ color_reshape1_end = time.process_time()
 
 print("K-Means Clustering Colors ...")
 # Initialize k-means
-kmeans_start = time.process_time()
-clusters = MiniBatchKMeans(n_clusters=num_colors)				# TO DO: Check if this can be
-kmeans_end = time.process_time()
+kmeans_start = time.clock()
+clusters = MiniBatchKMeans(n_clusters=num_colors, random_state=3)				# TO DO: Check if this can be
+kmeans_end = time.clock()
 
 print("Pixel labeling clusters ...")
 # Find clusters and assign labels to pixels (711, 1067, 3) -> (758637,)
@@ -354,7 +356,8 @@ quantized_image = quantized_image.reshape((h, w, 3))
 color_reshape2_end = time.process_time()
 
 # Convert quantized image from LAB to BGR
-color_cvt2_start = time.process_time()
+color_cvt2_start = time.clock()
+print(quantized_image.dtype)
 quantized_image = cv2.cvtColor(quantized_image, cv2.COLOR_LAB2BGR)
 color_cvt2_end = time.process_time()
 
@@ -438,7 +441,8 @@ if show_results:
 	images_to_show = np.vstack([row_1, row_2])
 	cv2.imshow("Paint By Numbers", images_to_show)
 	cv2.waitKey(0)
-	cv2.imwrite('sample_results/' + specific_image_name, images_to_show)
+	if save_img:
+		cv2.imwrite('sample_results/' + specific_image_name, images_to_show)
 	cv2.destroyAllWindows()
 	cv2.imshow("Final PBN Template", final_img)
 	cv2.waitKey(0)
