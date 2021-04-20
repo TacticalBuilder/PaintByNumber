@@ -14,18 +14,18 @@ warnings.filterwarnings("ignore")
 
 # Image Settings
 prepath = 'test_images/'
-specific_image_name = 'crosby.jpg'
+specific_image_name = 'cathy.jpg'
 image_name = prepath + specific_image_name			# Name of Image
 crayon_name = 'color_packs/crayola_22pk.txt'    # Name of c
 reshape_image = True						# Whether to reshape image dimensions
-reshape_width = 256
+reshape_width = int(256*1.5)
 reshape_height = 256
 color_code = 1 								# Color code to read in (0 = grayscale, 1 = BGR)
-num_colors = 5				# Number of colors needed for k-means clustering
+num_colors = 10				# Number of colors needed for k-means clustering
 median_kernel = 5							# Size of median kernel used for blurring
 blur = 'median'								# 'median' or 'gaussian'
-show_results = False							# Show plots?
-use_custom_rgb_to_lab = True				# Use custom RGB to LAB conversion function
+show_results = True							# Show plots?
+use_custom_rgb_to_lab = False				# Use custom RGB to LAB conversion function
 save_img = False
 
 # GPU Settings
