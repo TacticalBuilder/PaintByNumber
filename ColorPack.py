@@ -19,6 +19,7 @@ def betterColorToNumber
 import math
 import cv2 as cv
 import numpy as np
+#import paint_by_numbers_pipeline as pbn
 
 RGB_RED = 0
 RGB_BLUE = 1
@@ -31,7 +32,7 @@ LAB_B = 2
 COMPONENT_THRESH = 25  # defines the minimum size of a valid shape
 PT_SURVAILENCE = 5     # defines the number of candidate points to inspect
 
-# Organizes the points of a single connected components for candidate selection
+# Organizes the points of a single conffnected components for candidate selection
 class ShapePoints:
     def __init__(self):
         self.all_x = list()
@@ -40,129 +41,171 @@ class ShapePoints:
 
 # GPU version of image color to number assignment
 def betterColorToNumber_gpu(ref_img, shapeMask, crayons, num_comps):
+    assert (COMPONENT_THRESH > 2 * PT_SURVAILENCE), "Min shape threshold too small to select reasonable sample pts."
+
     # GPU function definition
     import pycuda.autoinit
     import pycuda.driver as drv
     from pycuda.compiler import SourceModule
 
     mod = SourceModule("""
-    __global__ void color_to_number_gpu(float *ref_l, float *ref_a, float *ref_b, int *s_mask, int *meta, int *lab_targs)
-        {
-            int index = (blockIdx.x * blockDim.x) + threadIdx.x;
-            int img_sz = meta[0] * meta[1];
-            int px_cnt = 0;
-            int best_area = 0;
-            int best_dist = 256000;
-            int c_pt, dist, best_dist_idx;
-            int pts[img_sz];
-            int radius[] = {10,3,10,3};  // approximation of acceptable padding for label
-            int buffer[] = {1,1,1,1};    // measured padding
+    __global__ void color_to_number_gpu(int *ref_l, int *ref_a, int *ref_b, int *remask, int *mask_seek, int *s_mask, int *meta, int *f_cray, int *lab_targs)
+    {
+        // meta = rows, cols, num crayons, threshold, Number Points to select
 
-            //extract shape from (1D compressed) mask
-            for (int i = 0; i < img_sz; i++) {
-                if (s_mask[i] == index) {
-                    pts[px_cnt] = i;
-                    px_cnt += 1;
-                }
-            }
+        int t_idx = (blockIdx.x * blockDim.x) + threadIdx.x;  // 1 thread per shape
+        int idx_pxls = mask_seek[t_idx+1] - mask_seek[t_idx]; // numbr pxls associated to shape
+        int idx_offset = mask_seek[t_idx];                    // base of candidates in remask array
 
-            //check for tiny shapes to disregard (thread skips analysis is this is the case)
-            if px_cnt < COMPONENT_THRESH {
-                lab_targs[index] = 0;
-                lab_targs[index+1] = 0;
-                lab_targs[index+2] = -1;
+        const int num_crayons = meta[2];       //number of colors to test
+        const int min_pxl_thresh = meta[3];    //minimum threshold of pxls to label
+        const int sz_candidate_ls = meta[4];   //number of pixels polled for labeling
+        int num_comps = meta[5];               //number of shapes (for testing overflow threads)
 
-            // run shape analysis
-            } else {
-                // survey candidate label anchors
-                for(int j = 0; j < PT_SURVAILENCE; j++) {
-                    c_pt = int( (j+0.5) * px_cnt / PT_SURVAILENCE );
-                    cand_x = candidate_pt / meta[0];  //extract row
-                    cand_y = candidate_pt % meta[0];  //extract col
+        int best_area = 0;
+        int best_dist = 256000;      // massive starting comparison distance
+        int cand_h, cand_w;
+        int c_pt, dist, cand_area, best_dist_idx;
+                                     // up, down, left, right
+        int radius[] = {10,3,3,10};  // approximation of acceptable padding for label
+        int buffer[] = {1,1,1,1};    // measured padding for candidate
 
-                    //  test up direction
-                    for (int k = 0; k < radius[0]; k++) {
-                        if ((cand_x - k) >= 0 ) {
-                            if (s_mask[c_pt] == s_mask[((cand_x-k)*meta[0])+cand_y]) {
-                                buffer[0] += 1;
-                            }
-                        }
-                    }
-
-                    //  test down direction
-                    for (int k = 0; k < radius[1]; k++) {
-                        if ((cand_x + k) < meta[0] ) {
-                            if (s_mask[c_pt] == s_mask[((cand_x+k)*meta[0])+cand_y]) {
-                                buffer[1] += 1;
-                            }
-                        }
-                    }
-
-                    //  test left direction
-                    for (int k = 0; k < radius[2]; k++) {
-                        if ( (cand_y + k) < meta[1] ) {
-                            if (s_mask[c_pt] == s_mask[cand_x*meta[0] + (cand_y+k)]) {
-                                buffer[2] += 1;
-                            }
-                        }
-                    }
-
-                    //   test right direction
-                    for (int k = 0; k < radius[3]; k++) {
-                        if ( (cand_y - k) >= 0) {
-                            if (s_mask[c_pt] == s_mask[cand_x*meta[0] + (cand_y-k)]) {
-                                buffer[3] += 1;
-                            }
-                        }
-                    }
-
-                    // compare for best location
-                    cand_area = (buffer[0] * buffer[1]) + (buffer[2] * buffer[3]);
-                    if(cand_area >= best_area) {
-                        best_area = cand_area;
-                        lab_targs[index*3] = cand_y;
-                        lab_targs[(index*3)+1] = cand_x;
-                    }
-                    buffer[0] = 1; // reset buffer counter
-                    buffer[1] = 1;
-                    buffer[2] = 1;
-                    buffer[3] = 1;
-                }
-                // color 2 number selection process
-                //    1D compressed pixel coordinate
-                c_pt = (lab_targs[index*3] * meta[0]) + lab_targs[(index*3)+1];
-
-                // LAB euclidean dist. comparison, uses dist^2 to avoid needing sqrt
-                for (int colr = 0; colr < meta[2]; colr++) {
-                    dist = (ref_l[c_pt] - f_cray[colr*3]) * (ref_l[c_pt] - f_cray[colr*3]) + \
-                           (ref_a[c_pt] - f_cray[(colr*3)+1]) * (ref_a[c_pt] - f_cray[(colr*3)+1]) +\
-                           (ref_b[c_pt] - f_cray[(colr*3)+2]) * (ref_b[c_pt] - f_cray[(colr*3)+2]);
-
-                    // flattened LAB data relates number to flat_cray idx
-                    if (dist < best_dist) {
-                        best_dist_idx = colr;
-                    }
-                }
-
-                // write final choice to output array
-                lab_targs[(index*3) + 2] = best_dist_idx + 1;
-            }
+        // check for overallocation of threads to problem
+        if (t_idx >= num_comps) {
+            return;
         }
-    """)
 
+        // check for tiny shapes to disregard (skip analysis if that is case)
+        if ( idx_pxls < min_pxl_thresh ) {
+            // flatten output is idx, stride 3
+            lab_targs[t_idx*3] = 0;
+            lab_targs[(t_idx*3)+1] = 0;
+            lab_targs[(t_idx*3)+2] = -1;
+
+        // run shape analysis
+
+        } else {
+            // survey for candidate label anchors
+            for (int j = 0; j < sz_candidate_ls; j++) {
+                c_pt = int( (j + 0.5) * idx_pxls / sz_candidate_ls ) + idx_offset;
+                cand_h = remask[c_pt] / meta[1];
+                cand_w = remask[c_pt] % meta[1];
+
+                // test up direction
+                for (int k = 0; k < radius[0]; k++) {
+                    if ((cand_h - k) >= 0 ) {  //cap = 0
+                        if (t_idx == s_mask[((cand_h - k) * meta[1]) + cand_w]) {
+                            buffer[0] += 1;
+                        }
+                    }
+                }
+
+                // test down direction
+                for (int k = 0; k < radius[1]; k++) {
+                    if ((cand_h + k) < meta[0] ) { //cap = img_h
+                        if (t_idx == s_mask[((cand_h + k) * meta[1]) + cand_w]) {
+                            buffer[1] += 1;
+                        }
+                    }
+                }
+
+                //  test left direction
+                for (int k = 0; k < radius[2]; k++) {
+                    if ( (cand_w - k) >= 0 ) {  //cap = 0
+                        if (t_idx == s_mask[(cand_h * meta[1]) + (cand_w - k)]) {
+                            buffer[2] += 1;
+                        }
+                    }
+                }
+
+                //  test right direction
+                for (int k = 0; k < radius[2]; k++) {
+                    if ( (cand_w - k) < meta[1] ) {  // cap = img_w
+                        if (t_idx == s_mask[(cand_h * meta[1]) + (cand_w - k)]) {
+                            buffer[2] += 1;
+                        }
+                    }
+                }
+
+                cand_area = (buffer[0] + buffer[1]) * (buffer[2] + buffer[3]);
+                if(cand_area > best_area) {
+                    best_area = cand_area;
+                    lab_targs[t_idx*3] = cand_w;
+                    lab_targs[(t_idx*3)+1] = cand_h;
+                }
+
+                buffer[0] = 1; // reset buffer counter
+                buffer[1] = 1;
+                buffer[2] = 1;
+                buffer[3] = 1;
+            }
+
+            // color 2 number selection process
+            //    recreate 1D compressed pixel coordinate
+            c_pt = (lab_targs[t_idx*3] * meta[0]) + lab_targs[(t_idx*3)+1];
+
+            // LAB euclidean dist. comparison, uses dist^2 to avoid needing sqrt
+            for (int colr = 0; colr < num_crayons; colr++) {
+                dist = (ref_l[c_pt] - f_cray[colr*3]) * (ref_l[c_pt] - f_cray[colr*3]) + \
+                       (ref_a[c_pt] - f_cray[(colr*3)+1]) * (ref_a[c_pt] - f_cray[(colr*3)+1]) + \
+                       (ref_b[c_pt] - f_cray[(colr*3)+2]) * (ref_b[c_pt] - f_cray[(colr*3)+2]);
+
+                // flattened LAB data relates number to flat_cray idx
+                if (dist < best_dist) {
+                    best_dist_idx = colr;
+                    best_dist = dist;
+                }
+            }
+
+            lab_targs[(t_idx*3) + 2] = best_dist_idx + 1;
+
+        }
+    }
+    """)
     color_to_number_gpu = mod.get_function("color_to_number_gpu")
 
-    # set up
-    label_targets = np.zeros(num_comps * 3)    # flattened array (stride = 3).
-    ref_l = ref_img[:, :, 0].flatten().astype('float32')
-    ref_a = ref_img[:, :, 1].flatten().astype('float32')
-    ref_b = ref_img[:, :, 2].flatten().astype('float32')
-    s_mask = shapeMask.flatten()
-    flat_cray = crayons.flatten_lab_data()
-    meta = [shapeMask.shape[0], shapeMask.shape[1], crayons.packSize()] #rows, cols, num crayons
+    # set up (convert existing data array)
+    label_targets = np.zeros(num_comps * 3, dtype=np.int32)    # flattened array (stride = 3).
+    ref_l = ref_img[:, :, 0].flatten().astype('uint8')
+    ref_a = ref_img[:, :, 1].flatten().astype('uint8')
+    ref_b = ref_img[:, :, 2].flatten().astype('uint8')
+    s_mask = shapeMask.flatten().astype('uint32')
+    flat_cray = crayons.flatten_bgr_data()
+    #   rows, cols, num crayons, threshold, Number Points to select
+    meta = np.array([int(shapeMask.shape[0]), int(shapeMask.shape[1]),
+                     int(crayons.packSize()), int(COMPONENT_THRESH),
+                     int(PT_SURVAILENCE), int(num_comps)], dtype=np.int32)
+                     
+    # set up (reshape shapeMask)
+    remask = np.zeros(shapeMask.shape[0] * shapeMask.shape[1], dtype=np.int32)
+    mask_seek = np.zeros(num_comps+1, dtype=np.int32)
 
-    color_to_number_gpu(drv.In(ref_l), drv.In(ref_a), drv.In(ref_b), drv.In(s_mask), drv.In(flat_cray), drv.In(meta), drv.Out(label_targets), block=(num_comps,1,1), grid=(1,1,1))
-    return label_targets
+    shapes = []
+    for i in range(num_comps):
+        shapes.append(ShapePoints())
+
+    for i in range(shapeMask.shape[0]) :    # row
+        for j in range(shapeMask.shape[1]) : # col
+            shape_id = int(shapeMask[i][j])   # get region tag
+            shapes[shape_id].all_x.append(i)  # assign row to x
+            shapes[shape_id].all_y.append(j)  # assign col to y
+            shapes[shape_id].num_pts += 1     # increment px count
+
+    # set up (GPU friendly mask structure)
+    rmask_idx = 0
+    for i in range(num_comps):  # for each component
+        for j in range(shapes[i].num_pts): # for each pxl held by component
+            # remask[base+next] = rw_idx * rw_width + col_idx
+            remask[rmask_idx+j] = int((shapes[i].all_x[j] * shapeMask.shape[1]) + shapes[i].all_y[j])
+        mask_seek[i] = rmask_idx
+        rmask_idx += shapes[i].num_pts
+    mask_seek[len(mask_seek)-1] = rmask_idx
+
+    #float *ref_l, float *ref_a, float *ref_b, int *remask, int *mask_seek, int *s_mask, int *meta, float *f_cray, int *lab_targs
+    color_to_number_gpu(drv.In(ref_l), drv.In(ref_a), drv.In(ref_b), drv.In(remask), drv.In(mask_seek), drv.In(s_mask), drv.In(meta), drv.In(flat_cray), drv.Out(label_targets), block=(num_comps,1,1), grid=(1,1,1))
+    label_returns = np.reshape(label_targets, (num_comps, 3))
+    return label_returns
+
 
 # Color to Number operation - returns a list of all labels (selected colors) and
 #   the pixel of the image to anchor them to.
@@ -402,19 +445,29 @@ class ColorPack:
 
     # number of available colors in set
     def packSize(self):
-        return len(color_set)
+        return len(self.color_set)
 
     # Flattens the crayons into a 1D (stride=3) array for GPU readin
     def flatten_lab_data(self):
-        out_arr = np.array(self.packSize() *  3)
+        out_arr = np.zeros(self.packSize() *  3)
 
-        for c in len(color_set):
-            out_arr[c*3] = color_set[c].lab[LAB_L]
-            out_arr[(c*3)+1] = color_set[c].lab[LAB_A]
-            out_arr[(c*3)+2] = color_set[c].lab[LAB_B]
+        for c in range(len(self.color_set)):
+            out_arr[c*3] = self.color_set[c].lab[LAB_L]
+            out_arr[(c*3)+1] = self.color_set[c].lab[LAB_A]
+            out_arr[(c*3)+2] = self.color_set[c].lab[LAB_B]
 
         return out_arr
 
+    # Flattens the crayons int a 1D (stride 3) array for GPU readin
+    def flatten_bgr_data(self):
+        out_arr = np.zeros(self.packSize() *  3)
+
+        for c in range(len(self.color_set)):
+            out_arr[c*3] = self.color_set[c].rgb[RGB_BLUE]
+            out_arr[(c*3)+1] = self.color_set[c].rgb[RGB_GREEN]
+            out_arr[(c*3)+2] = self.color_set[c].rgb[RGB_RED]
+
+        return out_arr
 
     # Color To Number Selection Operation (.distance() handles col. space conversion)
     def color2number(self, target):
